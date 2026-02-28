@@ -1,0 +1,165 @@
+{
+  "project_identity": {
+    "name": "Bengaluru Trekkers - Operations Management System",
+    "persona": "E1 - The Anti-AI Designer",
+    "tone": "Vibrant, Adventurous, Reliable, Organized",
+    "aesthetic": "Modern Tech x Outdoor Vibrant. High contrast, clean surfaces, electric accents.",
+    "principles": [
+      "Fusion: Technical precision meets outdoor vitality.",
+      "Clarity: Data density without clutter. Color is meaning.",
+      "Energy: Interactions should feel snappy and alive.",
+      "Context: Light mode default for daylight visibility."
+    ]
+  },
+  "design_system": {
+    "theme_strategy": "Light mode default (Best for data density/daylight). Dark mode toggle available.",
+    "colors": {
+      "palette_name": "Alpine Electric",
+      "primary": {
+        "name": "Electric Summit",
+        "value": "hsl(215, 100%, 50%)",
+        "usage": "Primary buttons, active states, key highlights"
+      },
+      "secondary": {
+        "name": "Trail Green",
+        "value": "hsl(150, 100%, 40%)",
+        "usage": "Success states, completion markers, positive trends"
+      },
+      "accent": {
+        "name": "Sunrise Orange",
+        "value": "hsl(35, 100%, 50%)",
+        "usage": "Warnings, attention-grabbers, pending states"
+      },
+      "destructive": {
+        "name": "Danger Red",
+        "value": "hsl(0, 90%, 60%)",
+        "usage": "Errors, deletions, cancellations"
+      },
+      "background": {
+        "page": "hsl(210, 40%, 98%)",
+        "card": "hsl(0, 0%, 100%)",
+        "sidebar": "hsl(222, 47%, 11%)"
+      },
+      "text": {
+        "primary": "hsl(222, 47%, 11%)",
+        "secondary": "hsl(215, 16%, 47%)",
+        "muted": "hsl(215, 16%, 65%)"
+      },
+      "gradients": {
+        "hero": "linear-gradient(135deg, hsl(215, 100%, 50%) 0%, hsl(200, 100%, 60%) 100%)",
+        "warm": "linear-gradient(135deg, hsl(35, 100%, 50%) 0%, hsl(10, 100%, 60%) 100%)"
+      }
+    },
+    "typography": {
+      "headings": {
+        "family": "Manrope, sans-serif",
+        "weights": ["600", "700", "800"],
+        "usage": "All section headers, page titles, card titles. CRITICAL: Import Manrope from Google Fonts."
+      },
+      "body": {
+        "family": "Inter, sans-serif",
+        "weights": ["400", "500"],
+        "usage": "General text, data tables, inputs."
+      },
+      "mono": {
+        "family": "JetBrains Mono, monospace",
+        "usage": "Batch IDs, Codes, Technical data."
+      }
+    },
+    "spacing": {
+      "scale": "Generous. Use 1.5x standard Tailwind spacing.",
+      "container_padding": "p-6 md:p-8 lg:p-12",
+      "card_padding": "p-6",
+      "gap": "gap-6 or gap-8"
+    },
+    "visual_enhancers": {
+      "radius": "rounded-xl (12px) for cards, rounded-lg (8px) for buttons/inputs",
+      "shadows": {
+        "card": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+        "card_hover": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+        "dropdown": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)"
+      },
+      "borders": "1px solid hsl(215, 20%, 93%)"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-white hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all active:scale-95",
+      "secondary": "bg-secondary/10 text-secondary hover:bg-secondary/20 border border-secondary/20",
+      "outline": "border-2 border-slate-200 hover:border-primary hover:text-primary bg-transparent text-slate-600",
+      "ghost": "hover:bg-slate-100 text-slate-600 hover:text-slate-900"
+    },
+    "cards": {
+      "style": "bg-white border border-slate-100 shadow-sm rounded-xl overflow-hidden hover:shadow-md transition-shadow duration-300",
+      "feature": "border-t-4 border-primary"
+    },
+    "inputs": {
+      "style": "bg-slate-50 border-slate-200 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/20 rounded-lg h-10 transition-all"
+    },
+    "badges": {
+      "base": "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
+      "success": "bg-green-100 text-green-800",
+      "warning": "bg-yellow-100 text-yellow-800",
+      "error": "bg-red-100 text-red-800",
+      "neutral": "bg-slate-100 text-slate-800",
+      "brand": "bg-blue-100 text-blue-800"
+    },
+    "tables": {
+      "style": "w-full text-sm text-left",
+      "header": "bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold text-xs py-3 px-4",
+      "row": "border-b border-slate-100 hover:bg-slate-50/50 transition-colors",
+      "cell": "py-3 px-4"
+    }
+  },
+  "layout_strategies": {
+    "dashboard_grid": {
+      "type": "Bento Grid",
+      "classes": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+      "logic": "Metrics (1x1), Lists (2x2), Charts (2x1 or 2x2)"
+    },
+    "sidebar": {
+      "style": "Fixed left, full height, dark theme (slate-900) for contrast against light content area.",
+      "width": "w-64"
+    },
+    "page_structure": {
+      "wrapper": "min-h-screen bg-slate-50/50 flex",
+      "main_content": "flex-1 p-8 overflow-y-auto h-screen"
+    }
+  },
+  "assets": {
+    "icons": {
+      "library": "lucide-react",
+      "style": "stroke-width={2} size={20}"
+    },
+    "images": {
+      "login_bg": {
+        "url": "https://images.unsplash.com/photo-1644047578814-1814a382f092?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwzfHxtb3VudGFpbiUyMHRyZWtraW5nJTIwbGFuZHNjYXBlJTIwaGltYWxheWFzfGVufDB8fHx8MTc3MTk4OTE1N3ww&ixlib=rb-4.1.0&q=85",
+        "alt": "Snowy Trek Path"
+      },
+      "trek_placeholders": [
+        "https://images.unsplash.com/photo-1673505413397-0cd0dc4f5854?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwyfHxtb3VudGFpbiUyMHRyZWtraW5nJTIwbGFuZHNjYXBlJTIwaGltYWxheWFzfGVufDB8fHx8MTc3MTk4OTE1N3ww&ixlib=rb-4.1.0&q=85",
+        "https://images.unsplash.com/photo-1590565544001-5ee05d8bb48d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwxfHxtb3VudGFpbiUyMHRyZWtraW5nJTIwbGFuZHNjYXBlJTIwaGltYWxheWFzfGVufDB8fHx8MTc3MTk4OTE1N3ww&ixlib=rb-4.1.0&q=85"
+      ],
+      "group_placeholder": "https://images.pexels.com/photos/7624913/pexels-photo-7624913.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+    }
+  },
+  "instructions_to_main_agent": [
+    "INSTALLATION: Run `yarn add lucide-react date-fns recharts react-day-picker` if not present.",
+    "FONTS: Add `<link href='https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap' rel='stylesheet'>` to public/index.html.",
+    "CRITICAL: Set default font to Inter in Tailwind config, but use Manrope for all headings (h1-h6).",
+    "AUTH: Hardcode initial admin email in logic (e.g., 'admin@bengalurutrekkers.com'). All other signups require approval status.",
+    "COMPONENTS: Use Shadcn UI for complex interactions (Calendar, Dialog, Popover). Customize them to match the 'Alpine Electric' palette.",
+    "LAYOUT: Use a sidebar layout for the authenticated area. Login page should be a split screen (Image Left / Form Right).",
+    "FORMS: Use react-hook-form + zod for validation. Display errors in red text below inputs.",
+    "DATA: All interactive elements MUST have `data-testid` attributes.",
+    "ACCESSIBILITY: Ensure text contrast ratios are met. Use 'text-slate-900' on light backgrounds for body text."
+  ],
+  "universal_guidelines": [
+    "Do not use generic centered layouts. Use asymmetrical grids.",
+    "Use generous padding (p-8+) for containers.",
+    "Every interaction needs a micro-animation (scale, color shift).",
+    "Avoid gradients for text. Use solid, high-contrast colors.",
+    "Use 'sonner' for toast notifications.",
+    "Use 'recharts' for any data visualization (bookings per month, etc.)."
+  ]
+}
