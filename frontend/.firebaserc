@@ -1,5 +1,14 @@
 {
   "projects": {
     "default": "bengaluru-trekkers-ops"
+  },
+  "targets": {
+    "bengaluru-trekkers-ops": {
+      "hosting": {
+        "production": ["bengaluru-trekkers-ops"],
+        "staging":    ["bengaluru-trekkers-staging"],
+        "dev":        ["bengaluru-trekkers-dev"]
+      }
+    }
   }
 }
