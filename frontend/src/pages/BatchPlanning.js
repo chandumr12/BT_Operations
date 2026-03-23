@@ -12,10 +12,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Plus, Edit, ChevronDown, Star, X, Users, Calendar, MapPin, Search, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { Plus, Edit, Trash2, ChevronDown, Star, X, Users, Calendar, MapPin, Search, ChevronLeft, ChevronRight, Filter, AlertTriangle } from 'lucide-react';
 
 const LeadSelector = ({ selectedLeads, onChange, users }) => {
   const [open, setOpen] = useState(false);
+  const [leadSearch, setLeadSearch] = useState('');
 
   const toggleUser = (user) => {
     const exists = selectedLeads.find(l => l.userId === user.uid);
@@ -50,16 +51,31 @@ const LeadSelector = ({ selectedLeads, onChange, users }) => {
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-72 p-2 bg-white" align="start">
-          <p className="text-xs text-slate-500 px-2 pb-2">Select users with Trek Lead role</p>
-          <div className="space-y-1 max-h-48 overflow-y-auto">
-            {users.map(u => (
-              <label key={u.uid} className="flex items-center gap-2 p-2 rounded hover:bg-slate-50 cursor-pointer">
-                <Checkbox checked={!!selectedLeads.find(l => l.userId === u.uid)} onCheckedChange={() => toggleUser(u)} />
-                <span className="text-sm text-slate-900">{u.displayName}</span>
-                <Badge variant="outline" className="text-xs ml-auto">{u.role}</Badge>
-              </label>
-            ))}
-            {users.length === 0 && <p className="text-sm text-slate-500 p-2">No users available</p>}
+          {/* Search box */}
+          <div className="relative mb-2">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search leads..."
+              value={leadSearch}
+              onChange={e => setLeadSearch(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 bg-slate-50"
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1 max-h-52 overflow-y-auto">
+            {users
+              .filter(u => !leadSearch || u.displayName?.toLowerCase().includes(leadSearch.toLowerCase()))
+              .map(u => (
+                <label key={u.uid} className="flex items-center gap-2 p-2 rounded hover:bg-slate-50 cursor-pointer">
+                  <Checkbox checked={!!selectedLeads.find(l => l.userId === u.uid)} onCheckedChange={() => toggleUser(u)} />
+                  <span className="text-sm text-slate-900">{u.displayName}</span>
+                  <Badge variant="outline" className="text-xs ml-auto">{u.role}</Badge>
+                </label>
+              ))}
+            {users.filter(u => !leadSearch || u.displayName?.toLowerCase().includes(leadSearch.toLowerCase())).length === 0 && (
+              <p className="text-sm text-slate-400 p-2 text-center">No leads found</p>
+            )}
           </div>
         </PopoverContent>
       </Popover>
@@ -104,12 +120,13 @@ const BatchPlanning = () => {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // batch to delete
 
   // Search + filter + pagination
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [currentPage, setCurrentPage] = useState(1);
-  const PAGE_SIZE = 8;
+  const PAGE_SIZE = 10;
 
   const [formData, setFormData] = useState({
     batchCode: '', trekId: '', startDate: '', endDate: '',
@@ -126,7 +143,12 @@ const BatchPlanning = () => {
         api.get('/treks'),
         api.get('/users/basic')
       ]);
-      setBatches(batchesRes.data);
+      const sorted = [...batchesRes.data].sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tb - ta;
+      });
+      setBatches(sorted);
       setTreks(treksRes.data);
       setAllUsers(leadsRes.data.filter(u => u.status === 'approved'));
     } catch (error) {
@@ -183,6 +205,18 @@ const BatchPlanning = () => {
       internalNotes: batch.internalNotes || '',
     });
     setDialogOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await api.delete(`/batches/${deleteConfirm.id}`);
+      toast.success(`Batch ${deleteConfirm.batchCode} deleted`);
+      setDeleteConfirm(null);
+      fetchData();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Failed to delete batch');
+    }
   };
 
   const getTrekName = (trekId) => {
@@ -461,11 +495,18 @@ const BatchPlanning = () => {
                       {/* Right — actions */}
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {isAdmin && (
-                          <Button variant="ghost" size="sm" data-testid={`edit-batch-${batch.batchCode}`}
-                            onClick={() => openEditDialog(batch)}
-                            className="h-8 px-3 text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-lg gap-1.5">
-                            <Edit size={13} /> Edit
-                          </Button>
+                          <>
+                            <Button variant="ghost" size="sm" data-testid={`edit-batch-${batch.batchCode}`}
+                              onClick={() => openEditDialog(batch)}
+                              className="h-8 px-3 text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-lg gap-1.5">
+                              <Edit size={13} /> Edit
+                            </Button>
+                            <Button variant="ghost" size="sm" data-testid={`delete-batch-${batch.batchCode}`}
+                              onClick={() => setDeleteConfirm(batch)}
+                              className="h-8 px-3 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg gap-1.5">
+                              <Trash2 size={13} /> Delete
+                            </Button>
+                          </>
                         )}
                         <Button size="sm" data-testid={`manage-batch-${batch.batchCode}`}
                           onClick={() => navigate(`/batches/${batch.id}`)}
@@ -529,6 +570,37 @@ const BatchPlanning = () => {
             </div>
           )}
         </>
+      )}
+      {/* ── Delete Confirmation Dialog ── */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-11 h-11 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle size={22} className="text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Delete Batch</h3>
+                <p className="text-xs text-slate-500 mt-0.5">This action cannot be undone</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 mb-2">
+              You are about to permanently delete batch <span className="font-semibold text-slate-900">{deleteConfirm.batchCode}</span> ({getTrekName(deleteConfirm.trekId)}).
+            </p>
+            <div className="bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-5">
+              <p className="text-xs text-red-700 font-medium flex items-center gap-1.5">
+                <AlertTriangle size={12} />
+                Admin Warning: All participants, expenses and documents linked to this batch will be inaccessible.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
+              <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white" onClick={handleDelete}>
+                <Trash2 size={14} className="mr-1.5" /> Delete Batch
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

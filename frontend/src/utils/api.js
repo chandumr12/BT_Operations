@@ -5,6 +5,7 @@ const API_URL = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const api = axios.create({
   baseURL: API_URL,
+  timeout: 15000,
 });
 
 // Add auth token to requests

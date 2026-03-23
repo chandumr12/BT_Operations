@@ -11,7 +11,11 @@ import io
 import os
 import base64
 import json
+import asyncio
 import traceback
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
@@ -67,6 +71,35 @@ except:
     db = None
     logging.warning("Firestore client not initialized")
 
+# -------------------------------------------------------
+# Finance Firestore client (bt-finance project)
+# -------------------------------------------------------
+finance_db = None
+try:
+    FINANCE_KEY_BASE64 = os.getenv("FINANCE_FIREBASE_KEY_BASE64")
+    FINANCE_CRED_PATH = os.getenv("FINANCE_FIREBASE_CREDENTIALS_PATH",
+                                   str(Path(__file__).parent / "firebase-finance.json"))
+    if FINANCE_KEY_BASE64:
+        finance_decoded = base64.b64decode(FINANCE_KEY_BASE64)
+        finance_cred = credentials.Certificate(json.loads(finance_decoded.decode("utf-8")))
+        print("✅ Finance Firebase initialized using BASE64")
+    elif os.path.exists(FINANCE_CRED_PATH):
+        finance_cred = credentials.Certificate(FINANCE_CRED_PATH)
+        print("✅ Finance Firebase initialized using LOCAL JSON")
+    else:
+        finance_cred = None
+        print("⚠️  Finance Firebase credentials not found — payout routes will return empty")
+    if finance_cred:
+        if 'finance' not in [a.name for a in firebase_admin._apps.values()]:
+            finance_app = firebase_admin.initialize_app(finance_cred, name='finance')
+        else:
+            finance_app = firebase_admin.get_app('finance')
+        finance_db = firestore.client(app=finance_app)
+        print("✅ Finance Firestore connected")
+except Exception as e:
+    finance_db = None
+    print(f"⚠️  Finance Firestore not connected: {e}")
+
 # Create the main app
 app = FastAPI()
 
@@ -105,6 +138,8 @@ def delete_object(path: str):
 
 # Constants
 HARDCODED_ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@bengalurutrekkers.com')
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
 # Models
 class UserCreate(BaseModel):
@@ -181,6 +216,14 @@ class LeadCreate(BaseModel):
     email: Optional[str] = None
     password: Optional[str] = None
     role: str = "Trek Lead"
+    # Finance / KYC fields — all Optional so existing leads are unaffected
+    leadType: Optional[str] = None
+    notes: Optional[str] = None
+    bankName: Optional[str] = None
+    accountName: Optional[str] = None
+    accountNumber: Optional[str] = None
+    ifsc: Optional[str] = None
+    panNumber: Optional[str] = None
 
 class LeadSelfRegister(BaseModel):
     name: str
@@ -222,24 +265,115 @@ class TicketUpdate(BaseModel):
     labels: Optional[List[str]] = None
     attachments: Optional[List[dict]] = None
 
+# Firestore helper — wraps any blocking Firestore call with a timeout.
+# Returns `default` on timeout/error so endpoints degrade gracefully locally.
+async def fs_run(fn, timeout=4.0, default=None):
+    try:
+        loop = asyncio.get_running_loop()
+        return await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=timeout)
+    except asyncio.TimeoutError:
+        print(f"[FIRESTORE] Query timed out after {timeout}s")
+        return default
+    except Exception as e:
+        print(f"[FIRESTORE] Error: {type(e).__name__}: {e}")
+        return default
+
+# Email helper — sends batch assignment email via Gmail SMTP in a background thread.
+async def send_assignment_email(to_email: str, lead_name: str, role_label: str,
+                                batch_code: str, trek_name: str,
+                                start_date: str, end_date: str, assigner: str):
+    if not SMTP_USER or not SMTP_PASSWORD:
+        print("[EMAIL] SMTP not configured — skipping email")
+        return
+    subject = f"BT Ops: You've been assigned to Batch {batch_code}"
+    body = (
+        f"Hi {lead_name},\n\n"
+        f"You have been assigned to a new trek batch on BT Ops.\n\n"
+        f"  Trek      : {trek_name}\n"
+        f"  Batch     : {batch_code}\n"
+        f"  Your Role : {role_label}\n"
+        f"  Dates     : {start_date} → {end_date}\n"
+        f"  Assigned by: {assigner}\n\n"
+        f"Please log in to BT Ops to view full batch details.\n\n"
+        f"— Bengaluru Trekkers Operations\n"
+    )
+    msg = MIMEMultipart()
+    msg["From"] = SMTP_USER
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    def _send():
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_USER, to_email, msg.as_string())
+
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _send)
+        print(f"[EMAIL] Sent assignment email to {to_email}")
+    except Exception as e:
+        print(f"[EMAIL] Failed to send to {to_email}: {e}")
+        # Non-fatal — batch save must not fail because of email
+
 # Authentication Dependency
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
-        decoded_token = firebase_auth.verify_id_token(credentials.credentials)
+        loop = asyncio.get_running_loop()
+        decoded_token = await asyncio.wait_for(
+            loop.run_in_executor(
+                None, lambda: firebase_auth.verify_id_token(credentials.credentials)
+            ),
+            timeout=8.0
+        )
         uid = decoded_token['uid']
-        
-        # Get user from Firestore
+        email = decoded_token.get('email', '')
+        now = datetime.now(timezone.utc).isoformat()
+        is_admin = email == HARDCODED_ADMIN_EMAIL
+
         if db:
-            user_ref = db.collection('users').document(uid)
-            user_doc = user_ref.get()
-            
-            if user_doc.exists:
-                user_data = user_doc.to_dict()
-                user_data['uid'] = uid
-                return user_data
-        
-        return {'uid': uid, 'email': decoded_token.get('email', ''), 'role': 'user', 'status': 'approved'}
+            try:
+                user_ref = db.collection('users').document(uid)
+                user_doc = await asyncio.wait_for(
+                    loop.run_in_executor(None, user_ref.get),
+                    timeout=3.0
+                )
+                if user_doc.exists:
+                    user_data = user_doc.to_dict()
+                    user_data['uid'] = uid
+                    user_data.setdefault('displayName', email.split('@')[0])
+                    user_data.setdefault('createdAt', now)
+                    return user_data
+                else:
+                    doc = {
+                        'email': email,
+                        'displayName': decoded_token.get('name', email.split('@')[0]),
+                        'role': 'Super Admin' if is_admin else 'Coordinator',
+                        'status': 'approved' if is_admin else 'pending',
+                        'createdAt': now,
+                    }
+                    await loop.run_in_executor(None, lambda: user_ref.set(doc))
+                    doc['uid'] = uid
+                    return doc
+            except asyncio.TimeoutError:
+                print(f"[AUTH] Firestore timed out for {uid} — using token fallback")
+            except Exception as db_err:
+                print(f"[AUTH] Firestore error: {type(db_err).__name__}: {db_err}")
+
+        # Fallback: derive profile from token
+        return {
+            'uid': uid,
+            'email': email,
+            'displayName': decoded_token.get('name', email.split('@')[0]),
+            'role': 'Super Admin' if is_admin else 'user',
+            'status': 'approved',
+            'createdAt': now,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
+        print(f"[AUTH ERROR] {type(e).__name__}: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid authentication credentials: {str(e)}"
@@ -389,12 +523,12 @@ async def list_treks(user: dict = Depends(get_current_user), include_archived: b
         return []
     
     treks_ref = db.collection('treks')
-    
+
     if not include_archived:
         treks_ref = treks_ref.where('archived', '==', False)
-    
-    treks = treks_ref.stream()
-    
+
+    treks = await fs_run(lambda: list(treks_ref.stream()), default=[])
+
     trek_list = []
     for trek_doc in treks:
         trek_data = trek_doc.to_dict()
@@ -432,12 +566,14 @@ async def update_trek(trek_id: str, trek_update: TrekUpdate, user: dict = Depend
     return {'message': 'Trek updated successfully', 'id': trek_id}
 
 # Batch Routes
-def create_notifications_for_batch(batch_id, batch_code, trek_name, assigned_leads, assigner_name):
-    """Create notifications for each lead assigned to a batch."""
+async def create_notifications_for_batch(batch_id, batch_code, trek_name, assigned_leads,
+                                         assigner_name, start_date="", end_date=""):
+    """Create in-app notifications and send email for each newly assigned lead."""
     if not db or not assigned_leads:
         return
     for lead in assigned_leads:
-        role_label = "Super Trek Lead" if lead.get("isSuperLead") else "Trek Lead"
+        role_label = "Trek Lead"
+        # In-app notification
         db.collection('notifications').add({
             'userId': lead['userId'],
             'type': 'batch_assignment',
@@ -448,6 +584,23 @@ def create_notifications_for_batch(batch_id, batch_code, trek_name, assigned_lea
             'createdAt': datetime.now(timezone.utc).isoformat(),
             'createdBy': assigner_name,
         })
+        # Email notification
+        user_doc = await fs_run(
+            lambda uid=lead['userId']: db.collection('users').document(uid).get()
+        )
+        if user_doc and user_doc.exists:
+            email = user_doc.to_dict().get('email', '')
+            if email:
+                await send_assignment_email(
+                    to_email=email,
+                    lead_name=lead.get('displayName', ''),
+                    role_label=role_label,
+                    batch_code=batch_code,
+                    trek_name=trek_name,
+                    start_date=start_date,
+                    end_date=end_date,
+                    assigner=assigner_name,
+                )
 
 @api_router.post("/batches")
 async def create_batch(batch: BatchCreate, user: dict = Depends(get_current_user)):
@@ -474,9 +627,11 @@ async def create_batch(batch: BatchCreate, user: dict = Depends(get_current_user
             trek_name = trek_doc.to_dict().get('name', '')
 
     if batch_data.get('assignedLeads'):
-        create_notifications_for_batch(
+        await create_notifications_for_batch(
             doc_ref.id, batch.batchCode, trek_name,
-            batch_data['assignedLeads'], user.get('displayName', 'Admin')
+            batch_data['assignedLeads'], user.get('displayName', 'Admin'),
+            start_date=batch.startDate,
+            end_date=batch.endDate,
         )
     
     return batch_data
@@ -486,7 +641,7 @@ async def get_my_batches(user: dict = Depends(get_current_user)):
     """Get batches assigned to the current user (for Trek Leads)."""
     if not db:
         return []
-    all_batches = list(db.collection('batches').stream())
+    all_batches = await fs_run(lambda: list(db.collection('batches').stream()), default=[])
     result = []
     for batch_doc in all_batches:
         batch_data = batch_doc.to_dict()
@@ -494,7 +649,7 @@ async def get_my_batches(user: dict = Depends(get_current_user)):
         assigned_leads = batch_data.get('assignedLeads', [])
         for lead in assigned_leads:
             if lead.get('userId') == user['uid']:
-                batch_data['myRole'] = 'Super Trek Lead' if lead.get('isSuperLead') else 'Trek Lead'
+                batch_data['myRole'] = 'Trek Lead'
                 result.append(batch_data)
                 break
     return result
@@ -507,8 +662,8 @@ async def list_batches(user: dict = Depends(get_current_user), trek_id: Optional
     batches_ref = db.collection('batches')
     if trek_id:
         batches_ref = batches_ref.where('trekId', '==', trek_id)
-    
-    all_batches = list(batches_ref.stream())
+
+    all_batches = await fs_run(lambda: list(batches_ref.stream()), default=[])
     user_role = user.get('role', '')
     
     batch_list = []
@@ -565,12 +720,57 @@ async def update_batch(batch_id: str, batch_data: dict, user: dict = Depends(get
                 if trek_doc.exists:
                     trek_name = trek_doc.to_dict().get('name', '')
             batch_code = batch_data.get('batchCode', old_batch.get('batchCode', ''))
-            create_notifications_for_batch(
+            await create_notifications_for_batch(
                 batch_id, batch_code, trek_name,
-                new_leads, user.get('displayName', 'Admin')
+                new_leads, user.get('displayName', 'Admin'),
+                start_date=batch_data.get('startDate', old_batch.get('startDate', '')),
+                end_date=batch_data.get('endDate', old_batch.get('endDate', '')),
             )
     
     return {'message': 'Batch updated successfully', 'id': batch_id}
+
+@api_router.delete("/batches/{batch_id}")
+async def delete_batch(batch_id: str, user: dict = Depends(get_current_user)):
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    allowed_roles = ['Super Admin', 'Operations Manager']
+    if user.get('role') not in allowed_roles:
+        raise HTTPException(status_code=403, detail="Only admins can delete batches")
+    batch_ref = db.collection('batches').document(batch_id)
+    if not batch_ref.get().exists:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    batch_ref.delete()
+    return {'message': 'Batch deleted successfully'}
+
+# Team Member Routes
+@api_router.get("/team")
+async def list_team(user: dict = Depends(get_current_user)):
+    if not db: return []
+    docs = db.collection('team_members').stream()
+    return [{**d.to_dict(), 'id': d.id} for d in docs]
+
+@api_router.post("/team")
+async def create_team_member(data: dict, user: dict = Depends(get_current_user)):
+    if user.get('role') not in ['Super Admin', 'Operations Manager']:
+        raise HTTPException(status_code=403, detail="Admins only")
+    data['createdAt'] = datetime.now(timezone.utc).isoformat()
+    ref = db.collection('team_members').add(data)
+    return {'id': ref[1].id, **data}
+
+@api_router.patch("/team/{member_id}")
+async def update_team_member(member_id: str, data: dict, user: dict = Depends(get_current_user)):
+    if user.get('role') not in ['Super Admin', 'Operations Manager']:
+        raise HTTPException(status_code=403, detail="Admins only")
+    data['updatedAt'] = datetime.now(timezone.utc).isoformat()
+    db.collection('team_members').document(member_id).update(data)
+    return {'message': 'Updated', 'id': member_id}
+
+@api_router.delete("/team/{member_id}")
+async def delete_team_member(member_id: str, user: dict = Depends(get_current_user)):
+    if user.get('role') not in ['Super Admin', 'Operations Manager']:
+        raise HTTPException(status_code=403, detail="Admins only")
+    db.collection('team_members').document(member_id).delete()
+    return {'message': 'Deleted'}
 
 # Notification Routes
 @api_router.get("/notifications")
@@ -1023,13 +1223,13 @@ async def list_leads(approval_status: Optional[str] = Query(None), user: dict = 
     leads_ref = db.collection('leads')
 
     if approval_status:
-        leads_stream = leads_ref.where('approvalStatus', '==', approval_status).stream()
+        leads_docs = await fs_run(lambda: list(leads_ref.where('approvalStatus', '==', approval_status).stream()), default=[])
     else:
         # Default: only show approved leads (or legacy leads without approvalStatus field)
-        leads_stream = leads_ref.stream()
+        leads_docs = await fs_run(lambda: list(leads_ref.stream()), default=[])
 
     lead_list = []
-    for lead_doc in leads_stream:
+    for lead_doc in leads_docs:
         lead_data = lead_doc.to_dict()
         # Exclude pending/rejected unless explicitly requested
         if not approval_status and lead_data.get('approvalStatus') == 'pending':
@@ -1168,6 +1368,67 @@ async def delete_lead(lead_id: str, user: dict = Depends(require_admin)):
     lead_ref.delete()
     return {'message': 'Lead profile deleted permanently', 'id': lead_id}
 
+# ── Payout Routes (reads finance Firestore) ────────────────────────────────
+
+@api_router.get("/leads/{lead_id}/payouts")
+async def get_lead_payouts(lead_id: str, user: dict = Depends(get_current_user)):
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    lead_doc = await fs_run(lambda: db.collection('leads').document(lead_id).get())
+    if not lead_doc or not lead_doc.exists:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    lead_data = lead_doc.to_dict()
+    lead_name = (lead_data.get('name') or '').strip()
+    if not finance_db:
+        return {'leadId': lead_id, 'leadName': lead_name, 'entries': [],
+                'totalBatches': 0, 'totalEarned': 0, 'financeConnected': False}
+    batches_raw = await fs_run(lambda: list(finance_db.collection('batches').stream()), default=[])
+    entries = []
+    for b_doc in batches_raw:
+        b = b_doc.to_dict()
+        b['id'] = b_doc.id
+        lp_array = b.get('leadPayments', [])
+        amount_from_array = sum(int(lp.get('amount') or 0) for lp in lp_array
+                                if (lp.get('name') or '').strip().lower() == lead_name.lower())
+        legacy_hit = ((b.get('leadId') and b['leadId'] == lead_id) or
+                      (b.get('leadName') or '').strip().lower() == lead_name.lower())
+        amount_from_legacy = int(b.get('leadPayment') or 0) if legacy_hit else 0
+        total_amount = amount_from_array + amount_from_legacy
+        if total_amount <= 0:
+            continue
+        cleared_by = b.get('paymentClearedBy') or {}
+        if lead_id in cleared_by and isinstance(cleared_by[lead_id], bool):
+            cleared = cleared_by[lead_id]
+        elif lead_name in cleared_by and isinstance(cleared_by[lead_name], bool):
+            cleared = cleared_by[lead_name]
+        else:
+            cleared = bool(b.get('paymentCleared', False))
+        lead_key = lead_id if lead_id in cleared_by else lead_name
+        entries.append({'financeBatchId': b['id'], 'batchCode': b.get('batchCode') or '—',
+                        'date': b.get('date') or b.get('startDate') or '—',
+                        'trekName': b.get('trekName') or '—', 'amount': total_amount,
+                        'cleared': cleared, 'leadKey': lead_key})
+    entries.sort(key=lambda e: e['date'], reverse=True)
+    return {'leadId': lead_id, 'leadName': lead_name, 'entries': entries,
+            'totalBatches': len(entries), 'totalEarned': sum(e['amount'] for e in entries),
+            'financeConnected': True}
+
+@api_router.patch("/leads/{lead_id}/payouts/{finance_batch_id}/toggle")
+async def toggle_lead_payout(lead_id: str, finance_batch_id: str, body: dict,
+                              user: dict = Depends(require_admin)):
+    if not finance_db:
+        raise HTTPException(status_code=503, detail="Finance database not connected")
+    lead_key = body.get('leadKey')
+    new_status = body.get('cleared')
+    if lead_key is None or new_status is None:
+        raise HTTPException(status_code=400, detail="leadKey and cleared are required")
+    batch_ref = finance_db.collection('batches').document(finance_batch_id)
+    batch_doc = await fs_run(lambda: batch_ref.get())
+    if not batch_doc or not batch_doc.exists:
+        raise HTTPException(status_code=404, detail="Finance batch not found")
+    batch_ref.update({f'paymentClearedBy.{lead_key}': bool(new_status)})
+    return {'message': 'Payment status updated', 'leadKey': lead_key, 'cleared': new_status}
+
 # Checklist Routes
 @api_router.post("/checklists")
 async def create_checklist(checklist: ChecklistCreate, user: dict = Depends(get_current_user)):
@@ -1227,17 +1488,18 @@ async def get_dashboard_stats(user: dict = Depends(get_current_user)):
         today = datetime.now(timezone.utc).date().isoformat()
         
         if is_admin:
-            upcoming_batches = list(db.collection('batches').where('startDate', '>=', today).stream())
-            active_leads = list(db.collection('leads').where('active', '==', True).stream())
-            active_treks = list(db.collection('treks').where('archived', '==', False).stream())
+            upcoming_batches = await fs_run(lambda: list(db.collection('batches').where('startDate', '>=', today).stream()), default=[])
+            active_leads = await fs_run(lambda: list(db.collection('leads').where('active', '==', True).stream()), default=[])
+            active_treks = await fs_run(lambda: list(db.collection('treks').where('archived', '==', False).stream()), default=[])
             from datetime import datetime as dt
             first_day_of_month = dt.now(timezone.utc).replace(day=1).date().isoformat()
-            all_completed = list(db.collection('batches').where('status', '==', 'Completed').stream())
+            all_completed = await fs_run(lambda: list(db.collection('batches').where('status', '==', 'Completed').stream()), default=[])
             completed_batches = [b for b in all_completed if b.to_dict().get('endDate', '') >= first_day_of_month]
-            pending_users = len(list(db.collection('users').where('status', '==', 'pending').stream())) if user_role == 'Super Admin' else 0
+            pending_list = await fs_run(lambda: list(db.collection('users').where('status', '==', 'pending').stream()), default=[]) if user_role == 'Super Admin' else []
+            pending_users = len(pending_list)
         else:
             # For leads/coordinators - only their assigned batches
-            all_batches = list(db.collection('batches').stream())
+            all_batches = await fs_run(lambda: list(db.collection('batches').stream()), default=[])
             my_batches = []
             for b in all_batches:
                 bd = b.to_dict()
@@ -1636,6 +1898,167 @@ async def save_config(config_data: dict, admin: dict = Depends(require_admin)):
     config_ref.set(config_data)
     
     return {'message': 'Configuration saved successfully'}
+
+# -------------------------------------------------------
+# Badge / Voucher System
+# -------------------------------------------------------
+
+BADGE_TIERS = [
+    {"id": "kumara_parvatha", "name": "Kumara Parvatha", "elevation": "1,712m", "minBatches": 5,  "emoji": "🏔️"},
+    {"id": "kedarkantha",     "name": "Kedarkantha",     "elevation": "3,810m", "minBatches": 10, "emoji": "⛰️"},
+    {"id": "roopkund",        "name": "Roopkund",        "elevation": "5,029m", "minBatches": 20, "emoji": "🗻"},
+    {"id": "trishul",         "name": "Trishul",         "elevation": "7,120m", "minBatches": 30, "emoji": "🌟"},
+    {"id": "nanda_devi",      "name": "Nanda Devi",      "elevation": "7,816m", "minBatches": 40, "emoji": "💎"},
+    {"id": "everester",       "name": "Everester",       "elevation": "8,849m", "minBatches": 50, "emoji": "🏆"},
+]
+
+@api_router.get("/badge-config")
+async def get_badge_config(user: dict = Depends(get_current_user)):
+    """Return all badge tiers with admin-configured goodie info."""
+    tiers = []
+    for tier in BADGE_TIERS:
+        config = {}
+        if db:
+            doc = await fs_run(
+                lambda tid=tier["id"]: db.collection("badge_config").document(tid).get()
+            )
+            if doc and doc.exists:
+                config = doc.to_dict()
+        tiers.append({**tier, **config})
+    return tiers
+
+@api_router.put("/badge-config/{tier_id}")
+async def update_badge_config(tier_id: str, data: dict, admin: dict = Depends(require_admin)):
+    """Admin: set goodie description (and optionally pic URL) for a tier."""
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    valid_ids = {t["id"] for t in BADGE_TIERS}
+    if tier_id not in valid_ids:
+        raise HTTPException(status_code=404, detail="Unknown tier")
+    allowed = {"goodieDescription", "goodiePicUrl"}
+    payload = {k: v for k, v in data.items() if k in allowed}
+    db.collection("badge_config").document(tier_id).set(payload, merge=True)
+    return {"message": "Badge config updated"}
+
+@api_router.post("/badge-config/{tier_id}/upload-image")
+async def upload_badge_image(tier_id: str, file: UploadFile = File(...), admin: dict = Depends(require_admin)):
+    """Admin: upload a goodie photo for a tier."""
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    valid_ids = {t["id"] for t in BADGE_TIERS}
+    if tier_id not in valid_ids:
+        raise HTTPException(status_code=404, detail="Unknown tier")
+    data = await file.read()
+    if len(data) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+    ext = Path(file.filename).suffix or ".jpg"
+    path = f"badge-images/{tier_id}{ext}"
+    put_object(path, data, file.content_type or "image/jpeg")
+    pic_url = f"/api/badge-config/{tier_id}/image"
+    db.collection("badge_config").document(tier_id).set({"goodiePicUrl": pic_url}, merge=True)
+    return {"goodiePicUrl": pic_url}
+
+@api_router.get("/badge-config/{tier_id}/image")
+async def get_badge_image(tier_id: str):
+    """Serve the uploaded goodie image for a tier."""
+    for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+        path = f"badge-images/{tier_id}{ext}"
+        try:
+            content, content_type = get_object(path)
+            return Response(content=content, media_type=content_type)
+        except Exception:
+            continue
+    raise HTTPException(status_code=404, detail="No image found for this tier")
+
+@api_router.post("/badges/claim/{tier_id}")
+async def claim_badge(tier_id: str, user: dict = Depends(get_current_user)):
+    """Lead claims an unlocked badge. Generates a unique voucher code."""
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    uid = user["uid"]
+    tier = next((t for t in BADGE_TIERS if t["id"] == tier_id), None)
+    if not tier:
+        raise HTTPException(status_code=404, detail="Unknown badge tier")
+
+    # Check if already claimed
+    voucher_id = f"{uid}_{tier_id}"
+    existing = await fs_run(
+        lambda: db.collection("vouchers").document(voucher_id).get()
+    )
+    if existing and existing.exists:
+        return existing.to_dict()
+
+    # Verify the lead has enough completed batches
+    # (array-contains on nested objects doesn't work in Firestore — stream all and filter)
+    all_batches = await fs_run(
+        lambda: list(db.collection("batches").stream()),
+        timeout=8.0,
+        default=[]
+    )
+    completed = 0
+    for b in all_batches:
+        bd = b.to_dict()
+        if bd.get("status") == "Completed":
+            if any(l.get("userId") == uid for l in bd.get("assignedLeads", [])):
+                completed += 1
+
+    if completed < tier["minBatches"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not enough completed batches. Need {tier['minBatches']}, have {completed}."
+        )
+
+    # Fetch goodie config
+    config_doc = await fs_run(
+        lambda: db.collection("badge_config").document(tier_id).get()
+    )
+    config = config_doc.to_dict() if (config_doc and config_doc.exists) else {}
+
+    # Generate voucher
+    code = f"BT-{tier_id.upper()[:3]}-{str(uuid.uuid4())[:8].upper()}"
+    voucher = {
+        "userId": uid,
+        "displayName": user.get("displayName", ""),
+        "tierId": tier_id,
+        "tierName": tier["name"],
+        "elevation": tier["elevation"],
+        "emoji": tier["emoji"],
+        "voucherCode": code,
+        "goodieDescription": config.get("goodieDescription", ""),
+        "goodiePicUrl": config.get("goodiePicUrl", ""),
+        "claimedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    db.collection("vouchers").document(voucher_id).set(voucher)
+    return voucher
+
+@api_router.get("/badges/vouchers")
+async def get_my_vouchers(user: dict = Depends(get_current_user)):
+    """Lead fetches all their claimed vouchers."""
+    if not db:
+        return []
+    uid = user["uid"]
+    docs = await fs_run(
+        lambda: db.collection("vouchers").where("userId", "==", uid).get(),
+        timeout=6.0,
+        default=[]
+    )
+    if not docs:
+        return []
+    return [d.to_dict() for d in docs]
+
+@api_router.get("/badges/vouchers/all")
+async def get_all_vouchers(admin: dict = Depends(require_admin)):
+    """Admin: get all claimed vouchers across all leads."""
+    if not db:
+        return []
+    docs = await fs_run(
+        lambda: db.collection("vouchers").order_by("claimedAt", direction=firestore.Query.DESCENDING).get(),
+        timeout=8.0,
+        default=[]
+    )
+    if not docs:
+        return []
+    return [d.to_dict() for d in docs]
 
 # Include the router in the main app
 app.include_router(api_router)

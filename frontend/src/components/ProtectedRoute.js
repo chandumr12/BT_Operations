@@ -17,7 +17,31 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (userProfile?.status !== 'approved') {
+  if (!userProfile) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-slate-50">
+        <div className="max-w-md p-8 bg-white rounded-xl shadow-lg text-center">
+          <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold heading-font mb-2">Cannot Reach Server</h2>
+          <p className="text-slate-600 mb-6">
+            Unable to load your profile. Please check that the backend server is running.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (userProfile.status !== 'approved') {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50">
         <div className="max-w-md p-8 bg-white rounded-xl shadow-lg text-center">
@@ -41,7 +65,7 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     );
   }
 
-  if (allowedRoles.length > 0 && !allowedRoles.includes(userProfile?.role)) {
+  if (allowedRoles.length > 0 && !allowedRoles.includes(userProfile.role)) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50">
         <div className="max-w-md p-8 bg-white rounded-xl shadow-lg text-center">

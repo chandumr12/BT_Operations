@@ -30,19 +30,23 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
-      
+
+      // Safety net: always resolve loading within 20s no matter what
+      const safetyTimer = setTimeout(() => setLoading(false), 20000);
+
       if (user) {
         try {
           const idToken = await user.getIdToken();
           setToken(idToken);
-          
+
           // Fetch user profile from backend
           const response = await axios.get(`${API_URL}/auth/me`, {
             headers: {
               'Authorization': `Bearer ${idToken}`
-            }
+            },
+            timeout: 15000,
           });
-          
+
           setUserProfile(response.data);
         } catch (error) {
           console.error('Error fetching user profile:', error);
@@ -51,7 +55,8 @@ export const AuthProvider = ({ children }) => {
         setToken(null);
         setUserProfile(null);
       }
-      
+
+      clearTimeout(safetyTimer);
       setLoading(false);
     });
 
@@ -111,7 +116,11 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {loading ? (
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      ) : children}
     </AuthContext.Provider>
   );
 };

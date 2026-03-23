@@ -336,7 +336,7 @@ const TicketDetailsDialog = ({ ticket, open, onClose, onRefresh, onDelete, users
           style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #3b82f6 100%)' }}>
           <div className="absolute top-0 right-0 w-48 h-48 opacity-10 pointer-events-none"
             style={{ background: 'radial-gradient(circle, #fff 0%, transparent 70%)', transform: 'translate(30%,-30%)' }} />
-          <div className="relative px-5 pt-5 pb-4">
+          <div className="relative pl-5 pr-12 pt-5 pb-4">
             {/* Title row */}
             <div className="flex items-start justify-between gap-4 mb-3">
               <div className="flex-1 min-w-0">

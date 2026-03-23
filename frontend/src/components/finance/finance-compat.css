@@ -1,0 +1,310 @@
+/* ============================================================
+   finance-compat.css
+   Exact port of bt-finance styles.css scoped under .finance-scope
+   Uses !important where needed to beat Tailwind Preflight resets.
+   ============================================================ */
+
+.finance-scope {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #222;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --primary: #111827;
+  --primary-contrast: #fff;
+  --accent: #0ea5e9;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --shadow: 0 4px 12px rgba(0,0,0,0.06);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.finance-scope *, .finance-scope *::before, .finance-scope *::after {
+  box-sizing: border-box;
+}
+
+/* Restore headings that Tailwind Preflight collapses */
+.finance-scope h1, .finance-scope h2, .finance-scope h3,
+.finance-scope h4, .finance-scope h5, .finance-scope h6 {
+  font-size: revert;
+  font-weight: revert;
+  margin: revert;
+}
+.finance-scope h2 { font-size: 1.8rem; font-weight: 600; margin: 0 0 12px; }
+.finance-scope h3 { font-size: 1.3rem; margin: 0 0 12px; }
+
+/* Restore button base that Tailwind wipes */
+.finance-scope button {
+  font-family: var(--font);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+/* ============== Container ============== */
+.finance-scope .container,
+.finance-scope .leads-container {
+  padding: 30px;
+  max-width: 1200px;
+  margin: auto;
+}
+
+/* ============== App Shell ============== */
+.finance-scope .topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.finance-scope .topbar__left { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.finance-scope .topbar__right { font-size: .9rem; color: var(--muted); }
+
+.finance-scope .tabs {
+  background: #f3f4f6;
+  border-radius: var(--radius-sm);
+  display: flex; gap: 6px;
+  padding: 4px; width: max-content; margin: 16px 0;
+}
+.finance-scope .tab {
+  padding: 8px 18px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(0,0,0,0.08) !important;
+  background: #fff !important;
+  color: #111 !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  font-size: 0.9rem !important;
+  white-space: nowrap !important;
+  line-height: 1.4 !important;
+}
+.finance-scope .tab--active { box-shadow: var(--shadow) !important; border-color: transparent !important; }
+
+/* ============== Cards ============== */
+.finance-scope .cards-grid {
+  display: grid; gap: 16px; grid-template-columns: repeat(12, 1fr);
+}
+.finance-scope .card {
+  grid-column: span 3;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 16px;
+}
+.finance-scope .card__title { color: var(--muted); font-size: .9rem; display: flex; align-items: center; gap: 6px; margin: 0; }
+.finance-scope .card__metric { font-size: 1.6rem; font-weight: 700; margin-top: 6px; }
+.finance-scope .card__sub { font-size: .85rem; color: var(--muted); }
+
+/* ============== Buttons â€” !important to beat Tailwind ============== */
+.finance-scope .btn {
+  background: var(--primary) !important;
+  color: var(--primary-contrast) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 9px 14px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: .2s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  font-size: .9rem !important;
+  line-height: 1.4 !important;
+  white-space: nowrap !important;
+  text-decoration: none !important;
+  font-family: var(--font) !important;
+}
+.finance-scope .btn:hover { filter: brightness(0.92) !important; }
+.finance-scope .btn--ghost {
+  background: #fff !important;
+  color: #111 !important;
+  border: 1px solid var(--border) !important;
+}
+.finance-scope .btn--danger { background: var(--danger) !important; color: #fff !important; }
+.finance-scope .btn--success { background: var(--success) !important; color: #fff !important; }
+.finance-scope .btn--icon { padding: 6px 9px !important; border-radius: 8px !important; }
+.finance-scope .btn--sm { padding: 5px 10px !important; font-size: .8rem !important; }
+
+/* ============== Inputs â€” !important to beat Tailwind ============== */
+.finance-scope .field { display: flex; flex-direction: column; gap: 6px; }
+.finance-scope .field__label { font-size: .85rem; color: var(--muted); }
+
+.finance-scope input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.finance-scope select,
+.finance-scope textarea {
+  padding: 10px !important;
+  border-radius: 10px !important;
+  border: 1px solid var(--border) !important;
+  background: #fff !important;
+  outline: none !important;
+  font-size: .95rem !important;
+  font-family: var(--font) !important;
+  color: var(--text) !important;
+  line-height: 1.5 !important;
+  width: 100%;
+}
+.finance-scope .filters input:not([type="checkbox"]):not([type="radio"]),
+.finance-scope .filters select { width: auto !important; }
+
+.finance-scope input:not([type="checkbox"]):not([type="radio"]):focus,
+.finance-scope select:focus,
+.finance-scope textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(14,165,233,.15) !important;
+  outline: none !important;
+}
+.finance-scope textarea { min-height: 90px; resize: vertical; }
+.finance-scope .field__error,
+.finance-scope .error { color: var(--danger); font-size: 12px; margin-top: 4px; }
+.finance-scope .checkbox-label { display: flex; align-items: center; gap: 8px; }
+
+/* Grid helpers */
+.finance-scope .grid-2 { display: grid; gap: 12px; grid-template-columns: repeat(2, 1fr); }
+.finance-scope .grid-3 { display: grid; gap: 12px; grid-template-columns: repeat(3, 1fr); }
+
+/* ============== Filters Bar ============== */
+.finance-scope .filters {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 16px 0;
+}
+.finance-scope .filters__spacer { flex: 1; }
+
+/* ============== Tables ============== */
+.finance-scope .table,
+.finance-scope .batch-table,
+.finance-scope .preview-table {
+  width: 100%; border-collapse: collapse; background: #fff;
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.finance-scope .table th,
+.finance-scope .table td,
+.finance-scope .batch-table th,
+.finance-scope .batch-table td,
+.finance-scope .preview-table th,
+.finance-scope .preview-table td {
+  padding: 12px !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  text-align: left !important;
+  font-size: .92rem !important;
+}
+.finance-scope .table th,
+.finance-scope .batch-table th,
+.finance-scope .preview-table th {
+  background: #f8fafc !important; color: #111 !important; font-weight: 700 !important;
+}
+.finance-scope .table tbody tr:hover td,
+.finance-scope .batch-table tbody tr:hover td { background: #fcfcfc !important; }
+.finance-scope .table--compact th,
+.finance-scope .table--compact td { padding: 10px !important; }
+.finance-scope .table__actions { display: flex; gap: 8px; justify-content: flex-end; }
+.finance-scope .empty-state { padding: 24px; text-align: center; color: var(--muted); }
+
+/* ============== Modal ============== */
+.finance-scope .modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; z-index: 9999;
+}
+.finance-scope .modal__content {
+  width: min(820px, 96vw); background: #fff; border-radius: 14px;
+  border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0,0,0,.25);
+  max-height: 90vh; overflow-y: auto;
+}
+.finance-scope .modal__header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 18px; border-bottom: 1px solid var(--border);
+}
+.finance-scope .modal__title { font-size: 1.1rem; font-weight: 700; margin: 0; }
+.finance-scope .modal__body { padding: 18px; }
+.finance-scope .modal__footer {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 16px 18px; border-top: 1px solid var(--border);
+}
+
+/* ============== Badges / Status ============== */
+.finance-scope .badge {
+  display: inline-flex !important; align-items: center !important; gap: 6px !important;
+  padding: 2px 8px !important; border-radius: 999px !important;
+  font-size: .75rem !important; font-weight: 600 !important;
+}
+.finance-scope .badge--ok { background: #ecfdf5 !important; color: #065f46 !important; }
+.finance-scope .badge--warn { background: #fef3c7 !important; color: #92400e !important; }
+.finance-scope .badge--danger { background: #fee2e2 !important; color: #991b1b !important; }
+.finance-scope .status-paid { color: var(--success) !important; font-weight: 600 !important; }
+.finance-scope .status-pending { color: var(--danger) !important; font-weight: 600 !important; }
+.finance-scope .lead-type {
+  background: #2563eb !important; color: #fff !important;
+  padding: 2px 8px !important; border-radius: 6px !important;
+  font-size: .75rem !important; white-space: nowrap !important;
+}
+
+/* ============== Stats Bar ============== */
+.finance-scope .stats-bar {
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  justify-content: space-between; margin-bottom: 20px;
+}
+.finance-scope .stats-bar span { font-size: 1rem; font-weight: 600; }
+.finance-scope .stats-bar .green { color: var(--success); }
+.finance-scope .stats-bar .red { color: var(--danger); }
+
+/* ============== Lead Cards ============== */
+.finance-scope .lead-form {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;
+}
+.finance-scope .lead-form textarea { min-width: 280px; }
+.finance-scope .lead-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 16px; margin-bottom: 18px;
+}
+.finance-scope .lead-header {
+  font-size: 1.05rem; display: flex; align-items: center;
+  gap: 8px; margin-bottom: 6px; font-weight: 700;
+}
+.finance-scope .lead-notes { font-style: italic; font-size: .9rem; color: var(--muted); }
+.finance-scope .batch-table { margin-top: 12px; }
+.finance-scope .preview-table { margin-top: 16px; }
+
+/* ============== Input Group ============== */
+.finance-scope .input-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.finance-scope .input-group input,
+.finance-scope .input-group select,
+.finance-scope .input-group textarea {
+  padding: 10px !important; border-radius: 10px !important;
+  border: 1px solid var(--border) !important; background: #fff !important;
+}
+
+/* ============== Utilities ============== */
+.finance-scope .muted { color: var(--muted); }
+.finance-scope .right { margin-left: auto; }
+.finance-scope .hide { display: none !important; }
+.finance-scope .positive { color: var(--success); font-weight: 600; }
+.finance-scope .negative { color: var(--danger); font-weight: 600; }
+
+/* ============== Responsive ============== */
+@media (max-width: 900px) {
+  .finance-scope .card { grid-column: span 6; }
+  .finance-scope .grid-2,
+  .finance-scope .grid-3 { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .finance-scope .card { grid-column: span 12; }
+  .finance-scope .container,
+  .finance-scope .leads-container { padding: 16px; }
+  .finance-scope .modal__content { width: 100%; }
+  .finance-scope .stats-bar { flex-direction: column; align-items: flex-start; }
+}

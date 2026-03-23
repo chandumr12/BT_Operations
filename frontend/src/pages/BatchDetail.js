@@ -12,9 +12,23 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Download, Upload, Plus, Trash2, Users, Star,
-  Calendar, MapPin, CheckCircle, XCircle, Loader2, Edit, Search,
-  DollarSign, Save, Receipt, FileText, MessageSquare, ThumbsUp, ThumbsDown
+  Calendar, MapPin, CheckCircle, XCircle, Loader2, Edit, Search, Filter,
+  DollarSign, Save, Receipt, FileText, MessageSquare, ThumbsUp, ThumbsDown,
+  Truck, Package, Car, RotateCcw, Tag, Compass, Coffee, MoreHorizontal,
+  ClipboardList, Eye, Phone, SlidersHorizontal,
 } from 'lucide-react';
+
+const EXPENSE_ITEMS = [
+  { key: 'paidToDriver',       label: 'Driver Payment',  Icon: Truck          },
+  { key: 'lunchPacking',       label: 'Lunch Packing',   Icon: Package        },
+  { key: 'parkingCharges',     label: 'Parking',         Icon: MapPin         },
+  { key: 'jeepCharges',        label: 'Jeep Charges',    Icon: Car            },
+  { key: 'refundToCustomer',   label: 'Customer Refund', Icon: RotateCcw      },
+  { key: 'tickets',            label: 'Entry Fees',      Icon: Tag            },
+  { key: 'localGuide',         label: 'Local Guide',     Icon: Compass        },
+  { key: 'leadsLunchExpenses', label: 'Lead Meals',      Icon: Coffee         },
+  { key: 'otherExpenses',      label: 'Other Expenses',  Icon: MoreHorizontal },
+];
 
 const BatchDetail = () => {
   const { batchId } = useParams();
@@ -31,6 +45,10 @@ const BatchDetail = () => {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editParticipant, setEditParticipant] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortPickup, setSortPickup] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [editingRemarkId, setEditingRemarkId] = useState(null);
+  const [tempRemark, setTempRemark] = useState('');
   const [formData, setFormData] = useState({
     slNo: '', fullName: '', contactNo: '', age: '', gender: 'Male',
     pickupPoint: '', totalPrice: '', amountPaid: '', balanceAmount: '',
@@ -46,6 +64,10 @@ const BatchDetail = () => {
     additionalExpenses: []
   });
   const [savingExpense, setSavingExpense] = useState(false);
+  const [expenseDialogOpen, setExpenseDialogOpen] = useState(false);
+  const [expenseSubmitted, setExpenseSubmitted] = useState(false);
+  const [expenseEditing, setExpenseEditing] = useState(false);
+  const [adminExpenseView, setAdminExpenseView] = useState(null);
 
   // Documents state
   const [documents, setDocuments] = useState([]);
@@ -100,6 +122,7 @@ const BatchDetail = () => {
           otherExpensesRemarks: myExpRes.data.otherExpensesRemarks || '',
           additionalExpenses: myExpRes.data.additionalExpenses || [],
         });
+        setExpenseSubmitted(true);
       }
     } catch {}
     // Load documents and feedback
@@ -201,6 +224,14 @@ const BatchDetail = () => {
     } catch { toast.error('Failed to update'); }
   };
 
+  const saveLeadRemark = async (p, remark) => {
+    setEditingRemarkId(null);
+    try {
+      await api.patch(`/batches/${batchId}/participants/${p.id}`, { leadRemark: remark });
+      setParticipants(prev => prev.map(x => x.id === p.id ? { ...x, leadRemark: remark } : x));
+    } catch { toast.error('Failed to save note'); }
+  };
+
   const resetForm = () => {
     setFormData({
       slNo: '', fullName: '', contactNo: '', age: '', gender: 'Male',
@@ -222,16 +253,34 @@ const BatchDetail = () => {
     setAddDialogOpen(true);
   };
 
-  const filteredParticipants = participants.filter(p => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return p.fullName?.toLowerCase().includes(q) || p.contactNo?.includes(q) || p.pickupPoint?.toLowerCase().includes(q);
-  });
+  const filteredParticipants = participants
+    .filter(p => {
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        if (
+          !p.fullName?.toLowerCase().includes(q) &&
+          !p.contactNo?.includes(q) &&
+          !p.pickupPoint?.toLowerCase().includes(q) &&
+          !p.remarks?.toLowerCase().includes(q)
+        ) return false;
+      }
+      if (statusFilter === 'boarded') return !!p.boarded;
+      if (statusFilter === 'noshow')  return !!p.noShow;
+      if (statusFilter === 'balance') return (p.balanceAmount || 0) > 0;
+      if (statusFilter === 'pending') return !p.boarded && !p.noShow;
+      return true; // 'all'
+    })
+    .sort((a, b) => {
+      if (!sortPickup) return 0;
+      return (a.pickupPoint || '').localeCompare(b.pickupPoint || '');
+    });
 
-  const totalBalance = participants.reduce((s, p) => s + (p.balanceAmount || 0), 0);
+  const totalBalance   = participants.reduce((s, p) => s + (p.balanceAmount || 0), 0);
   const totalCollected = participants.reduce((s, p) => s + (p.amountCollected || 0), 0);
-  const boardedCount = participants.filter(p => p.boarded).length;
-  const noShowCount = participants.filter(p => p.noShow).length;
+  const boardedCount   = participants.filter(p => p.boarded).length;
+  const noShowCount    = participants.filter(p => p.noShow).length;
+  const maleCount      = participants.filter(p => p.gender === 'Male').length;
+  const femaleCount    = participants.filter(p => p.gender === 'Female').length;
 
   // Expense calculations
   const myExpenseNum = (field) => parseFloat(myExpense[field]) || 0;
@@ -268,10 +317,12 @@ const BatchDetail = () => {
     setSavingExpense(true);
     try {
       await api.post(`/batches/${batchId}/expenses`, myExpense);
-      toast.success('Expense sheet saved');
+      toast.success('Expense sheet submitted');
+      setExpenseSubmitted(true);
+      setExpenseEditing(false);
       const allExpRes = await api.get(`/batches/${batchId}/expenses`);
       setAllExpenses(allExpRes.data);
-    } catch { toast.error('Failed to save expense'); }
+    } catch { toast.error('Failed to submit expense'); }
     setSavingExpense(false);
   };
 
@@ -481,7 +532,7 @@ const BatchDetail = () => {
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-4">
         {[
-          { label: 'Total', value: participants.length, unit: 'participants', color: 'from-slate-700 to-slate-800', text: 'text-white', sub: 'text-slate-300', icon: <Users size={18} className="text-slate-300" /> },
+          { label: 'Total', value: participants.length, unit: `${maleCount}M · ${femaleCount}F`, color: 'from-slate-700 to-slate-800', text: 'text-white', sub: 'text-slate-300', icon: <Users size={18} className="text-slate-300" /> },
           { label: 'Boarded', value: `${boardedCount}/${participants.length}`, unit: 'checked in', color: 'from-emerald-500 to-emerald-600', text: 'text-white', sub: 'text-emerald-100', icon: <CheckCircle size={18} className="text-emerald-200" /> },
           { label: 'No Show', value: noShowCount, unit: 'absent', color: 'from-red-500 to-red-600', text: 'text-white', sub: 'text-red-100', icon: <XCircle size={18} className="text-red-200" /> },
           { label: 'Balance Due', value: totalBalance.toLocaleString('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:0}), unit: 'outstanding', color: 'from-orange-400 to-orange-500', text: 'text-white', sub: 'text-orange-100', icon: <DollarSign size={18} className="text-orange-200" /> },
@@ -513,6 +564,35 @@ const BatchDetail = () => {
               data-testid="search-participants"
             />
           </div>
+          {/* Sort by pickup toggle */}
+          <button
+            onClick={() => setSortPickup(v => !v)}
+            className={`flex-shrink-0 flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium border transition-colors ${
+              sortPickup
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'
+            }`}
+            title="Sort by pickup point A→Z"
+          >
+            <Filter size={12} />
+            <span className="hidden sm:inline">Pickup</span>
+            {sortPickup && <span className="hidden sm:inline">↑</span>}
+          </button>
+
+          {/* Status filter */}
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className={`h-8 w-[120px] text-xs flex-shrink-0 border transition-colors ${statusFilter !== 'all' ? 'bg-indigo-50 border-indigo-300 text-indigo-700' : 'bg-white border-slate-200 text-slate-500'}`}>
+              <SlidersHorizontal size={12} className="mr-1 flex-shrink-0" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-white">
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="boarded">Boarded</SelectItem>
+              <SelectItem value="noshow">No Show</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="balance">Balance Due</SelectItem>
+            </SelectContent>
+          </Select>
 
           {isAdmin && (
             <>
@@ -549,7 +629,15 @@ const BatchDetail = () => {
                 <th className="px-3 py-2.5 w-10"></th>
                 <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Name</th>
                 <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Contact</th>
-                <th className="text-left px-3 py-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Pickup</th>
+                <th
+                  className="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider cursor-pointer select-none hover:text-blue-600 transition-colors"
+                  onClick={() => setSortPickup(v => !v)}
+                  title="Sort by pickup point"
+                >
+                  <span className={`flex items-center gap-1 ${sortPickup ? 'text-blue-600' : 'text-slate-400'}`}>
+                    Pickup {sortPickup ? '↑' : '⇅'}
+                  </span>
+                </th>
                 <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total</th>
                 <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Paid</th>
                 <th className="text-right px-3 py-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Balance</th>
@@ -567,15 +655,58 @@ const BatchDetail = () => {
               ) : filteredParticipants.map((p, idx) => (
                 <tr key={p.id} data-testid={`participant-row-${p.id}`}
                   className={`transition-colors group ${p.boarded ? 'bg-emerald-50/40' : p.noShow ? 'bg-red-50/40' : idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'} hover:bg-blue-50/30`}>
-                  <td className="px-4 py-3 text-xs text-slate-400 font-mono">{p.slNo || idx + 1}</td>
+                  <td className="px-4 py-3 text-xs text-slate-400 font-mono">{idx + 1}</td>
                   <td className="px-3 py-3">
                     <Checkbox checked={p.boarded} onCheckedChange={() => toggleBoarded(p)} data-testid={`boarding-checkbox-${p.id}`} />
                   </td>
                   <td className="px-3 py-3">
                     <p className={`font-medium text-sm ${p.boarded ? 'text-emerald-700' : 'text-slate-800'}`}>{p.fullName}</p>
                     {p.age && <p className="text-xs text-slate-400">{p.age}y · {p.gender}</p>}
+                    {p.remarks && (
+                      <p className="text-[11px] text-amber-600 italic mt-0.5 max-w-[200px] truncate" title={p.remarks}>
+                        {p.remarks}
+                      </p>
+                    )}
+                    {/* Lead note — inline editable */}
+                    {editingRemarkId === p.id ? (
+                      <input
+                        autoFocus
+                        value={tempRemark}
+                        onChange={(e) => setTempRemark(e.target.value)}
+                        onBlur={() => saveLeadRemark(p, tempRemark)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveLeadRemark(p, tempRemark);
+                          if (e.key === 'Escape') setEditingRemarkId(null);
+                        }}
+                        className="mt-0.5 w-full text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                        placeholder="Add lead note… (Enter to save)"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => { setEditingRemarkId(p.id); setTempRemark(p.leadRemark || ''); }}
+                        className="flex items-center gap-1 mt-0.5 text-left w-full group/note"
+                      >
+                        {p.leadRemark ? (
+                          <>
+                            <span className="text-[11px] text-indigo-600 italic truncate max-w-[190px]">{p.leadRemark}</span>
+                            <Edit size={9} className="flex-shrink-0 text-indigo-300 opacity-0 group-hover/note:opacity-100 transition-opacity" />
+                          </>
+                        ) : (
+                          <span className="text-[11px] text-slate-300 italic group-hover/note:text-indigo-400 transition-colors">+ lead note</span>
+                        )}
+                      </button>
+                    )}
                   </td>
-                  <td className="px-3 py-3 text-sm text-slate-600">{p.contactNo}</td>
+                  <td className="px-3 py-3">
+                    {p.contactNo ? (
+                      <a href={`tel:${p.contactNo}`}
+                        className="flex items-center gap-1 text-sm text-slate-600 hover:text-blue-600 transition-colors group/ph"
+                        onClick={e => e.stopPropagation()}>
+                        {p.contactNo}
+                        <Phone size={11} className="text-slate-300 group-hover/ph:text-blue-500 flex-shrink-0" />
+                      </a>
+                    ) : <span className="text-slate-300 text-sm">—</span>}
+                  </td>
                   <td className="px-3 py-3 text-sm text-slate-600">{p.pickupPoint}</td>
                   <td className="px-3 py-3 text-right text-sm text-slate-700 tabular-nums">{(p.totalPrice || 0).toLocaleString('en-IN')}</td>
                   <td className="px-3 py-3 text-right text-sm text-slate-700 tabular-nums">{(p.amountPaid || 0).toLocaleString('en-IN')}</td>
@@ -646,7 +777,14 @@ const BatchDetail = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <Label className="text-slate-900 font-medium">Contact No</Label>
-                <Input value={formData.contactNo} onChange={(e) => setFormData({...formData, contactNo: e.target.value})} className="bg-white" />
+                <Input
+                  value={formData.contactNo}
+                  onChange={(e) => setFormData({...formData, contactNo: e.target.value.replace(/\D/g, '').slice(0, 10)})}
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="10-digit number"
+                  className="bg-white"
+                />
               </div>
               <div>
                 <Label className="text-slate-900 font-medium">Age</Label>
@@ -698,7 +836,13 @@ const BatchDetail = () => {
             </div>
             <div>
               <Label className="text-slate-900 font-medium">Remarks</Label>
-              <Input value={formData.remarks} onChange={(e) => setFormData({...formData, remarks: e.target.value})} className="bg-white" />
+              <textarea
+                rows={2}
+                value={formData.remarks}
+                onChange={(e) => setFormData({...formData, remarks: e.target.value})}
+                placeholder="Allergies, special needs, dietary preferences…"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"
+              />
             </div>
             <div className="flex gap-3 pt-4">
               <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700" data-testid="save-participant-btn">{editParticipant ? 'Update' : 'Add'} Participant</Button>
@@ -711,248 +855,419 @@ const BatchDetail = () => {
 
       {/* Expenses Tab */}
       {activeTab === 'expenses' && (
-        <div className="space-y-5">
-          {/* Summary Strip */}
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { label: 'Collected', value: myExpenseNum('amountCollected'), color: 'from-emerald-500 to-emerald-600', testId: 'expense-summary-collected' },
-              { label: 'Total Spent', value: myTotalSpent, color: 'from-red-500 to-red-600', testId: 'expense-summary-spent' },
-              { label: myRemaining >= 0 ? 'Remaining' : 'Overspent', value: Math.abs(myRemaining), color: myRemaining >= 0 ? 'from-blue-500 to-blue-600' : 'from-orange-500 to-orange-600', testId: 'expense-summary-remaining' },
-            ].map(({ label, value, color, testId }) => (
-              <div key={label} className={`relative overflow-hidden rounded-xl bg-gradient-to-br ${color} p-4 shadow-sm`}>
-                <div className="absolute top-2 right-3 text-2xl font-black opacity-10">{label === 'Collected' ? '↓' : label === 'Total Spent' ? '↑' : '='}</div>
-                <p className="text-xs font-semibold text-white/70 uppercase tracking-wider mb-1">{label}</p>
-                <p className="text-xl md:text-2xl font-bold text-white" data-testid={testId}>
-                  {value.toLocaleString('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:0})}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* My Expense Sheet */}
-          <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden" data-testid="my-expense-sheet">
-            <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                  <Receipt size={16} className="text-blue-600" />
+        <>
+          <div className="space-y-5">
+            {/* Summary Strip */}
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Collected', value: myExpenseNum('amountCollected'), color: 'from-emerald-500 to-emerald-600', testId: 'expense-summary-collected' },
+                { label: 'Total Spent', value: myTotalSpent, color: 'from-red-500 to-red-600', testId: 'expense-summary-spent' },
+                { label: myRemaining >= 0 ? 'Remaining' : 'Overspent', value: Math.abs(myRemaining), color: myRemaining >= 0 ? 'from-blue-500 to-blue-600' : 'from-orange-500 to-orange-600', testId: 'expense-summary-remaining' },
+              ].map(({ label, value, color, testId }) => (
+                <div key={label} className={`relative overflow-hidden rounded-xl bg-gradient-to-br ${color} p-4 shadow-sm`}>
+                  <p className="text-xs font-semibold text-white/70 uppercase tracking-wider mb-1">{label}</p>
+                  <p className="text-xl md:text-2xl font-bold text-white" data-testid={testId}>
+                    {value.toLocaleString('en-IN', {style:'currency', currency:'INR', maximumFractionDigits:0})}
+                  </p>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-slate-900 text-sm">My Expense Sheet</h3>
-                  <p className="text-xs text-slate-400">Log your expenses for this batch</p>
-                </div>
-              </div>
-              <Button onClick={handleSaveExpense} disabled={savingExpense} size="sm" data-testid="save-expense-btn"
-                className="bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm h-8 text-xs self-start sm:self-auto">
-                {savingExpense ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Save size={13} className="mr-1.5" />}
-                {savingExpense ? 'Saving…' : 'Save Expenses'}
-              </Button>
+              ))}
             </div>
-            <div className="p-0">
-              {/* Income Row */}
-              <div className="bg-green-50/60 border-b border-green-100 px-3 md:px-6 py-3 md:py-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center flex-shrink-0">
-                      <DollarSign size={16} className="text-green-600" />
-                    </div>
-                    <div>
-                      <p className="font-semibold text-green-900 text-sm md:text-base">Amount Collected</p>
-                      <p className="text-xs text-green-600">Cash collected from participants</p>
-                    </div>
+
+            {/* My Expense Sheet Card */}
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm" data-testid="my-expense-sheet">
+              <div className="px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                    <Receipt size={16} className="text-blue-600" />
                   </div>
-                  <div className="flex items-center gap-2 pl-11 sm:pl-0">
-                    <span className="text-sm text-green-600 font-medium">INR</span>
-                    <Input
-                      type="number"
-                      value={myExpense.amountCollected}
-                      onChange={(e) => setMyExpense({...myExpense, amountCollected: e.target.value})}
-                      className="w-28 md:w-36 text-right bg-white border-green-200 focus:border-green-400 font-semibold text-green-800"
-                      placeholder="0"
-                      data-testid="expense-amount-collected"
-                    />
+                  <div>
+                    <h3 className="font-semibold text-slate-900 text-sm">My Expense Sheet</h3>
+                    <p className="text-xs text-slate-400">
+                      {expenseSubmitted ? 'Submitted — click to view or edit' : 'Log your expenses for this batch'}
+                    </p>
                   </div>
                 </div>
-              </div>
-
-              {/* Fixed Expense Items */}
-              <div className="divide-y divide-slate-100">
-                {[
-                  { key: 'paidToDriver', label: 'Paid to Driver', icon: '🚐', desc: 'Transport driver payment' },
-                  { key: 'lunchPacking', label: 'Lunch Packing', icon: '🍱', desc: 'Packed meals cost' },
-                  { key: 'parkingCharges', label: 'Parking Charges', icon: '🅿️', desc: 'Vehicle parking fees' },
-                  { key: 'jeepCharges', label: 'Jeep Charges', icon: '🚙', desc: 'Off-road vehicle hire' },
-                  { key: 'refundToCustomer', label: 'Refund to Customer', icon: '↩️', desc: 'Cancelled/partial refunds' },
-                  { key: 'tickets', label: 'Tickets / Entry Fees', icon: '🎫', desc: 'Park/monument entry' },
-                  { key: 'localGuide', label: 'Local Guide', icon: '🧭', desc: 'Local guide hire' },
-                  { key: 'leadsLunchExpenses', label: 'Leads Lunch', icon: '🍽️', desc: 'Lead team meals' },
-                  { key: 'otherExpenses', label: 'Other Expenses', icon: '📋', desc: 'Miscellaneous costs' },
-                ].map(({ key, label, icon, desc }, idx) => (
-                  <div key={key} className={`flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-3 px-3 md:px-6 py-2.5 md:py-3 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
-                    <div className="flex items-center gap-2 md:gap-3">
-                      <span className="text-base md:text-lg w-6 md:w-8 text-center flex-shrink-0">{icon}</span>
-                      <div>
-                        <p className="font-medium text-slate-800 text-xs md:text-sm">{label}</p>
-                        <p className="text-xs text-slate-400 hidden md:block">{desc}</p>
-                      </div>
-                    </div>
-                    <Input
-                      type="number"
-                      value={myExpense[key]}
-                      onChange={(e) => setMyExpense({...myExpense, [key]: e.target.value})}
-                      className="w-28 md:w-36 text-right bg-white ml-8 sm:ml-0"
-                      placeholder="0"
-                      data-testid={`expense-${key}`}
-                    />
-                  </div>
-                ))}
-                {myExpense.otherExpenses && parseFloat(myExpense.otherExpenses) > 0 && (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-3 px-3 md:px-6 py-2 bg-slate-50/40">
-                    <div className="flex items-center gap-2 md:gap-3">
-                      <span className="text-lg w-6 md:w-8 text-center"></span>
-                      <p className="text-xs text-slate-500 italic">Other expenses remarks</p>
-                    </div>
-                    <Input
-                      value={myExpense.otherExpensesRemarks}
-                      onChange={(e) => setMyExpense({...myExpense, otherExpensesRemarks: e.target.value})}
-                      className="w-full sm:w-56 bg-white text-sm ml-8 sm:ml-0"
-                      placeholder="Details for other expenses"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Additional Custom Expenses */}
-              <div className="border-t border-dashed border-slate-200">
-                <div className="px-4 md:px-6 py-3 bg-slate-50/60 flex items-center justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-slate-700 text-sm">Additional Expenses</p>
-                    <p className="text-xs text-slate-400">Add custom expense items with reasons</p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={addExpenseRow}
-                    className="h-8 text-xs border-dashed border-slate-300 text-slate-500 hover:bg-white flex-shrink-0 flex items-center gap-1.5"
-                    data-testid="add-expense-row-btn">
-                    <Plus size={13} /> Add Expense
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  {expenseSubmitted && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+                      <ClipboardList size={11} /> Submitted
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={() => { setExpenseEditing(!expenseSubmitted); setExpenseDialogOpen(true); }}
+                    className={expenseSubmitted
+                      ? 'h-8 text-xs bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      : 'h-8 text-xs bg-blue-600 hover:bg-blue-700'}
+                    data-testid="open-expense-dialog-btn"
+                  >
+                    {expenseSubmitted
+                      ? <><Eye size={13} className="mr-1.5" />View / Edit</>
+                      : <><Receipt size={13} className="mr-1.5" />Log Expenses</>}
                   </Button>
                 </div>
-                {(myExpense.additionalExpenses || []).length > 0 && (
-                  <div className="divide-y divide-slate-100">
-                    {(myExpense.additionalExpenses || []).map((item, idx) => (
-                      <div key={idx} className="flex items-center gap-2 px-4 md:px-6 py-2.5" data-testid={`additional-expense-${idx}`}>
-                        <span className="text-slate-300 text-xs font-mono w-5 flex-shrink-0">{idx + 1}.</span>
-                        <Input
-                          value={item.reason}
-                          onChange={(e) => updateExpenseRow(idx, 'reason', e.target.value)}
-                          className="flex-1 bg-white h-8 text-sm"
-                          placeholder="Reason / Description"
-                          data-testid={`additional-reason-${idx}`}
-                        />
-                        <Input
-                          type="number"
-                          value={item.amount}
-                          onChange={(e) => updateExpenseRow(idx, 'amount', e.target.value)}
-                          className="w-28 text-right bg-white h-8 text-sm flex-shrink-0"
-                          placeholder="0"
-                          data-testid={`additional-amount-${idx}`}
-                        />
-                        <button onClick={() => removeExpenseRow(idx)}
-                          className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors flex-shrink-0"
-                          data-testid={`remove-expense-row-${idx}`}>
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    ))}
-                    {additionalSpent > 0 && (
-                      <div className="flex items-center justify-between px-3 md:px-6 py-2 bg-slate-50">
-                        <span className="text-xs text-slate-500 font-medium sm:pl-9">Additional Total</span>
-                        <span className="text-sm font-semibold text-red-600 w-28 md:w-36 text-right pr-8 sm:pr-10">
-                          {additionalSpent.toLocaleString('en-IN')}
+              </div>
+              {expenseSubmitted && (myTotalSpent > 0 || myExpenseNum('amountCollected') > 0) && (
+                <div className="px-5 pb-4 border-t border-slate-50 pt-3">
+                  <div className="flex flex-wrap gap-2">
+                    {EXPENSE_ITEMS.filter(({ key }) => myExpenseNum(key) > 0).map(({ key, label, Icon }) => (
+                      <div key={key} className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
+                        <Icon size={11} className="text-slate-400 flex-shrink-0" />
+                        <span className="text-[10px] text-slate-500">{label}</span>
+                        <span className="text-xs font-semibold text-slate-700 tabular-nums ml-1">
+                          {myExpenseNum(key).toLocaleString('en-IN')}
                         </span>
                       </div>
-                    )}
+                    ))}
+                    {(myExpense.additionalExpenses || []).filter(i => parseFloat(i.amount) > 0).map((item, i) => (
+                      <div key={i} className="flex items-center gap-1.5 bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                        <span className="text-[10px] text-amber-600 max-w-[80px] truncate">{item.reason || 'Extra'}</span>
+                        <span className="text-xs font-semibold text-amber-700 tabular-nums ml-1">
+                          {(parseFloat(item.amount) || 0).toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
+
+            {/* All Expenses Overview (Admin view) */}
+            {isAdmin && allExpenses.length > 0 && (
+              <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden" data-testid="all-expenses-overview">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                    <DollarSign size={16} className="text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-slate-900 text-sm">All Lead Expense Sheets</h3>
+                    <p className="text-xs text-slate-400">{allExpenses.length} submission{allExpenses.length !== 1 ? 's' : ''}</p>
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {allExpenses.map(exp => (
+                    <div key={exp.id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3" data-testid={`expense-row-${exp.id}`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                          {exp.leadName?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-900 text-sm">{exp.leadName}</p>
+                          <p className="text-xs text-slate-400">
+                            Updated {new Date(exp.updatedAt).toLocaleDateString('en-IN', {day:'numeric', month:'short'})}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 pl-12 sm:pl-0">
+                        {[
+                          { label: 'Collected', val: exp.amountCollected, cls: 'text-emerald-600' },
+                          { label: 'Spent',     val: exp.totalSpent,      cls: 'text-red-600' },
+                          { label: 'Remaining', val: exp.remaining,        cls: (exp.remaining || 0) >= 0 ? 'text-blue-600' : 'text-orange-600' },
+                        ].map(({ label, val, cls }) => (
+                          <div key={label} className="text-right">
+                            <p className="text-[10px] text-slate-400 uppercase tracking-wide">{label}</p>
+                            <p className={`text-sm font-bold tabular-nums ${cls}`}>{(val || 0).toLocaleString('en-IN')}</p>
+                          </div>
+                        ))}
+                        <Button variant="outline" size="sm"
+                          className="h-7 text-xs border-slate-200 text-slate-600 hover:bg-slate-50 flex-shrink-0"
+                          onClick={() => setAdminExpenseView(exp)}>
+                          <Eye size={12} className="mr-1" /> Details
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {/* Consolidated Total */}
+                  <div className="px-5 py-4 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <p className="font-bold text-slate-800 text-sm">Consolidated Total</p>
+                    <div className="flex items-center gap-5">
+                      {[
+                        { label: 'Collected', val: allExpenses.reduce((s,e) => s+(e.amountCollected||0),0), cls: 'text-emerald-700' },
+                        { label: 'Spent',     val: allExpenses.reduce((s,e) => s+(e.totalSpent||0),0),      cls: 'text-red-700' },
+                        { label: 'Remaining', val: allExpenses.reduce((s,e) => s+(e.remaining||0),0),       cls: allExpenses.reduce((s,e) => s+(e.remaining||0),0) >= 0 ? 'text-blue-700' : 'text-orange-700' },
+                      ].map(({ label, val, cls }) => (
+                        <div key={label} className="text-right">
+                          <p className="text-[10px] text-slate-400 uppercase tracking-wide">{label}</p>
+                          <p className={`text-sm font-bold tabular-nums ${cls}`}>{val.toLocaleString('en-IN')}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* All Expenses Overview (Admin view) */}
-          {isAdmin && allExpenses.length > 0 && (
-            <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden" data-testid="all-expenses-overview">
-              <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                  <DollarSign size={16} className="text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-900 text-sm">All Lead Expense Sheets</h3>
-                  <p className="text-xs text-slate-400">{allExpenses.length} submission{allExpenses.length !== 1 ? 's' : ''}</p>
-                </div>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {allExpenses.map(exp => {
-                  const addlTotal = (exp.additionalExpenses || []).reduce((s, i) => s + (i.amount || 0), 0);
-                  return (
-                    <div key={exp.id} className="p-4 md:p-5" data-testid={`expense-row-${exp.id}`}>
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          {/* ── Expense Form Dialog ── */}
+          <Dialog open={expenseDialogOpen} onOpenChange={(open) => { setExpenseDialogOpen(open); if (!open) setExpenseEditing(false); }}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col bg-white p-0">
+              <DialogHeader className="px-6 py-4 border-b border-slate-100 flex-shrink-0">
+                <DialogTitle className="text-slate-900 text-base font-semibold">
+                  {expenseEditing ? 'Edit Expense Sheet' : 'Expense Sheet'} — {batch?.batchCode}
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="overflow-y-auto flex-1">
+                {!expenseEditing && expenseSubmitted ? (
+                  /* ── Read-only view ── */
+                  <div className="p-6 space-y-4">
+                    <div className="bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-emerald-600 uppercase tracking-wide font-semibold mb-0.5">Amount Collected</p>
+                        <p className="text-xl font-bold text-emerald-800 tabular-nums">
+                          {myExpenseNum('amountCollected').toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                        </p>
+                      </div>
+                      <DollarSign size={22} className="text-emerald-300" />
+                    </div>
+
+                    <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden">
+                      {EXPENSE_ITEMS.filter(({ key }) => myExpenseNum(key) > 0).map(({ key, label, Icon }) => (
+                        <div key={key} className="flex items-center justify-between px-4 py-3 bg-white">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-lg bg-slate-50 flex items-center justify-center flex-shrink-0">
+                              <Icon size={13} className="text-slate-500" />
+                            </div>
+                            <span className="text-sm text-slate-700 font-medium">{label}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-800 tabular-nums">
+                            {myExpenseNum(key).toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                          </span>
+                        </div>
+                      ))}
+                      {myExpense.otherExpensesRemarks && myExpenseNum('otherExpenses') > 0 && (
+                        <div className="px-4 py-2 bg-slate-50 pl-[52px]">
+                          <p className="text-xs text-slate-400 italic">{myExpense.otherExpensesRemarks}</p>
+                        </div>
+                      )}
+                      {(myExpense.additionalExpenses || []).filter(i => parseFloat(i.amount) > 0).map((item, i) => (
+                        <div key={i} className="flex items-center justify-between px-4 py-3 bg-amber-50/40">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+                              <MoreHorizontal size={13} className="text-amber-500" />
+                            </div>
+                            <span className="text-sm text-slate-700 font-medium">{item.reason || 'Additional'}</span>
+                          </div>
+                          <span className="text-sm font-semibold text-amber-700 tabular-nums">
+                            {(parseFloat(item.amount) || 0).toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between px-4 py-3 bg-red-50/60">
+                        <span className="text-sm font-bold text-slate-800">Total Spent</span>
+                        <span className="text-sm font-bold text-red-700 tabular-nums">
+                          {myTotalSpent.toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className={`rounded-xl px-4 py-3 flex items-center justify-between ${myRemaining >= 0 ? 'bg-blue-50 border border-blue-100' : 'bg-orange-50 border border-orange-100'}`}>
+                      <span className={`text-sm font-bold ${myRemaining >= 0 ? 'text-blue-800' : 'text-orange-800'}`}>
+                        {myRemaining >= 0 ? 'Amount Remaining' : 'Overspent by'}
+                      </span>
+                      <span className={`text-lg font-bold tabular-nums ${myRemaining >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+                        {Math.abs(myRemaining).toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  /* ── Edit / Form view ── */
+                  <div className="p-0">
+                    {/* Income Row */}
+                    <div className="bg-emerald-50/60 border-b border-emerald-100 px-6 py-4">
+                      <div className="flex items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                            {exp.leadName?.charAt(0)?.toUpperCase()}
+                          <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                            <DollarSign size={15} className="text-emerald-600" />
                           </div>
                           <div>
-                            <p className="font-semibold text-slate-900 text-sm">{exp.leadName}</p>
-                            <p className="text-xs text-slate-400">Updated {new Date(exp.updatedAt).toLocaleDateString('en-IN', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</p>
+                            <p className="font-semibold text-emerald-900 text-sm">Amount Collected</p>
+                            <p className="text-xs text-emerald-600">Cash collected from participants</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-5 pl-12 sm:pl-0">
-                          {[
-                            { label: 'Collected', val: exp.amountCollected, cls: 'text-emerald-600' },
-                            { label: 'Spent', val: exp.totalSpent, cls: 'text-red-600' },
-                            { label: 'Remaining', val: exp.remaining, cls: (exp.remaining || 0) >= 0 ? 'text-blue-600' : 'text-orange-600' },
-                          ].map(({ label, val, cls }) => (
-                            <div key={label} className="text-right">
-                              <p className="text-[10px] text-slate-400 uppercase tracking-wide">{label}</p>
-                              <p className={`text-sm font-bold tabular-nums ${cls}`}>{(val || 0).toLocaleString('en-IN')}</p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-emerald-600 font-medium">INR</span>
+                          <Input
+                            type="number"
+                            value={myExpense.amountCollected}
+                            onChange={(e) => setMyExpense({...myExpense, amountCollected: e.target.value})}
+                            className="w-32 text-right bg-white border-emerald-200 focus:border-emerald-400 font-semibold text-emerald-800"
+                            placeholder="0"
+                            data-testid="expense-amount-collected"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Expense Items */}
+                    <div className="divide-y divide-slate-100">
+                      {EXPENSE_ITEMS.map(({ key, label, Icon }, idx) => (
+                        <div key={key} className={`flex items-center justify-between gap-4 px-6 py-3.5 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}>
+                          <div className="flex items-center gap-3">
+                            <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                              <Icon size={13} className="text-slate-500" />
+                            </div>
+                            <span className="text-sm font-medium text-slate-700">{label}</span>
+                          </div>
+                          <Input
+                            type="number"
+                            value={myExpense[key]}
+                            onChange={(e) => setMyExpense({...myExpense, [key]: e.target.value})}
+                            className="w-32 text-right bg-white"
+                            placeholder="0"
+                            data-testid={`expense-${key}`}
+                          />
+                        </div>
+                      ))}
+                      {myExpense.otherExpenses && parseFloat(myExpense.otherExpenses) > 0 && (
+                        <div className="flex items-center justify-between gap-4 px-6 py-3 bg-slate-50/40">
+                          <p className="text-xs text-slate-400 italic pl-10">Remarks for other expenses</p>
+                          <Input
+                            value={myExpense.otherExpensesRemarks}
+                            onChange={(e) => setMyExpense({...myExpense, otherExpensesRemarks: e.target.value})}
+                            className="w-48 bg-white text-sm"
+                            placeholder="Details…"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Additional Expenses */}
+                    <div className="border-t border-dashed border-slate-200">
+                      <div className="px-6 py-3 bg-slate-50/60 flex items-center justify-between">
+                        <div>
+                          <p className="font-semibold text-slate-700 text-sm">Additional Expenses</p>
+                          <p className="text-xs text-slate-400">Custom items with descriptions</p>
+                        </div>
+                        <Button variant="outline" size="sm" onClick={addExpenseRow}
+                          className="h-8 text-xs border-dashed border-slate-300 text-slate-500 hover:bg-white"
+                          data-testid="add-expense-row-btn">
+                          <Plus size={13} className="mr-1" /> Add Row
+                        </Button>
+                      </div>
+                      {(myExpense.additionalExpenses || []).length > 0 && (
+                        <div className="divide-y divide-slate-100">
+                          {(myExpense.additionalExpenses || []).map((item, idx) => (
+                            <div key={idx} className="flex items-center gap-2.5 px-6 py-2.5" data-testid={`additional-expense-${idx}`}>
+                              <span className="text-slate-300 text-xs font-mono w-4 flex-shrink-0">{idx + 1}.</span>
+                              <Input
+                                value={item.reason}
+                                onChange={(e) => updateExpenseRow(idx, 'reason', e.target.value)}
+                                className="flex-1 bg-white h-8 text-sm"
+                                placeholder="Description"
+                                data-testid={`additional-reason-${idx}`}
+                              />
+                              <Input
+                                type="number"
+                                value={item.amount}
+                                onChange={(e) => updateExpenseRow(idx, 'amount', e.target.value)}
+                                className="w-28 text-right bg-white h-8 text-sm flex-shrink-0"
+                                placeholder="0"
+                                data-testid={`additional-amount-${idx}`}
+                              />
+                              <button onClick={() => removeExpenseRow(idx)}
+                                className="p-1.5 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-500 transition-colors flex-shrink-0"
+                                data-testid={`remove-expense-row-${idx}`}>
+                                <Trash2 size={13} />
+                              </button>
                             </div>
                           ))}
                         </div>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 text-xs">
-                        {[['Driver', exp.paidToDriver],['Lunch', exp.lunchPacking],['Parking', exp.parkingCharges],['Jeep', exp.jeepCharges],['Refund', exp.refundToCustomer],['Tickets', exp.tickets],['Guide', exp.localGuide],['Lead Lunch', exp.leadsLunchExpenses],['Other', exp.otherExpenses]]
-                          .filter(([_, v]) => v > 0).map(([label, val]) => (
-                          <div key={label} className="bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
-                            <p className="text-slate-400 text-[10px]">{label}</p>
-                            <p className="font-semibold text-slate-700 tabular-nums">{(val || 0).toLocaleString('en-IN')}</p>
-                          </div>
-                        ))}
-                        {(exp.additionalExpenses || []).filter(i => i.amount > 0).map((item, i) => (
-                          <div key={i} className="bg-amber-50 border border-amber-100 rounded-lg px-2.5 py-1.5">
-                            <p className="text-amber-500 text-[10px] truncate max-w-[80px]">{item.reason || 'Extra'}</p>
-                            <p className="font-semibold text-amber-800 tabular-nums">{(item.amount || 0).toLocaleString('en-IN')}</p>
-                          </div>
-                        ))}
-                      </div>
+                      )}
                     </div>
-                  );
-                })}
-                {/* Consolidated Total */}
-                <div className="px-5 py-4 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <p className="font-bold text-slate-800 text-sm">Consolidated Total</p>
-                  <div className="flex items-center gap-5">
-                    {[
-                      { label: 'Collected', val: allExpenses.reduce((s,e) => s+(e.amountCollected||0),0), cls: 'text-emerald-700' },
-                      { label: 'Spent', val: allExpenses.reduce((s,e) => s+(e.totalSpent||0),0), cls: 'text-red-700' },
-                      { label: 'Remaining', val: allExpenses.reduce((s,e) => s+(e.remaining||0),0), cls: allExpenses.reduce((s,e) => s+(e.remaining||0),0) >= 0 ? 'text-blue-700' : 'text-orange-700' },
-                    ].map(({ label, val, cls }) => (
-                      <div key={label} className="text-right">
-                        <p className="text-[10px] text-slate-400 uppercase tracking-wide">{label}</p>
-                        <p className={`text-sm font-bold tabular-nums ${cls}`}>{val.toLocaleString('en-IN')}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Dialog Footer */}
+              <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-3 flex-shrink-0 bg-white">
+                {!expenseEditing && expenseSubmitted ? (
+                  <Button onClick={() => setExpenseEditing(true)} size="sm"
+                    className="h-8 text-xs bg-blue-600 hover:bg-blue-700">
+                    <Edit size={13} className="mr-1.5" /> Edit Expenses
+                  </Button>
+                ) : (
+                  <Button onClick={handleSaveExpense} disabled={savingExpense} size="sm"
+                    className="h-8 text-xs bg-blue-600 hover:bg-blue-700" data-testid="save-expense-btn">
+                    {savingExpense ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Save size={13} className="mr-1.5" />}
+                    {savingExpense ? 'Submitting…' : 'Submit Expenses'}
+                  </Button>
+                )}
+                <Button variant="outline" size="sm"
+                  className="h-8 text-xs border-slate-200"
+                  onClick={() => { setExpenseDialogOpen(false); setExpenseEditing(false); }}>
+                  Close
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* ── Admin: Expense Detail Dialog ── */}
+          {adminExpenseView && (
+            <Dialog open={!!adminExpenseView} onOpenChange={() => setAdminExpenseView(null)}>
+              <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col bg-white p-0">
+                <DialogHeader className="px-6 py-4 border-b border-slate-100 flex-shrink-0">
+                  <DialogTitle className="text-slate-900 text-base font-semibold">
+                    {adminExpenseView.leadName} — Expense Details
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="overflow-y-auto flex-1 p-6 space-y-4">
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-emerald-600 uppercase tracking-wide font-semibold mb-0.5">Amount Collected</p>
+                      <p className="text-xl font-bold text-emerald-800 tabular-nums">
+                        {(adminExpenseView.amountCollected || 0).toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                      </p>
+                    </div>
+                    <DollarSign size={22} className="text-emerald-300" />
+                  </div>
+                  <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden">
+                    {EXPENSE_ITEMS.filter(({ key }) => (adminExpenseView[key] || 0) > 0).map(({ key, label, Icon }) => (
+                      <div key={key} className="flex items-center justify-between px-4 py-3 bg-white">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-slate-50 flex items-center justify-center flex-shrink-0">
+                            <Icon size={13} className="text-slate-500" />
+                          </div>
+                          <span className="text-sm text-slate-700 font-medium">{label}</span>
+                        </div>
+                        <span className="text-sm font-semibold text-slate-800 tabular-nums">
+                          {(adminExpenseView[key] || 0).toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                        </span>
                       </div>
                     ))}
+                    {(adminExpenseView.additionalExpenses || []).filter(i => i.amount > 0).map((item, i) => (
+                      <div key={i} className="flex items-center justify-between px-4 py-3 bg-amber-50/40">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+                            <MoreHorizontal size={13} className="text-amber-500" />
+                          </div>
+                          <span className="text-sm text-slate-700 font-medium">{item.reason || 'Additional'}</span>
+                        </div>
+                        <span className="text-sm font-semibold text-amber-700 tabular-nums">
+                          {(item.amount || 0).toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between px-4 py-3 bg-red-50/60">
+                      <span className="text-sm font-bold text-slate-800">Total Spent</span>
+                      <span className="text-sm font-bold text-red-700 tabular-nums">
+                        {(adminExpenseView.totalSpent || 0).toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                      </span>
+                    </div>
+                  </div>
+                  <div className={`rounded-xl px-4 py-3 flex items-center justify-between ${(adminExpenseView.remaining || 0) >= 0 ? 'bg-blue-50 border border-blue-100' : 'bg-orange-50 border border-orange-100'}`}>
+                    <span className={`text-sm font-bold ${(adminExpenseView.remaining || 0) >= 0 ? 'text-blue-800' : 'text-orange-800'}`}>
+                      {(adminExpenseView.remaining || 0) >= 0 ? 'Amount Remaining' : 'Overspent by'}
+                    </span>
+                    <span className={`text-lg font-bold tabular-nums ${(adminExpenseView.remaining || 0) >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+                      {Math.abs(adminExpenseView.remaining || 0).toLocaleString('en-IN', {style:'currency',currency:'INR',maximumFractionDigits:0})}
+                    </span>
                   </div>
                 </div>
-              </div>
-            </div>
+              </DialogContent>
+            </Dialog>
           )}
-        </div>
+        </>
       )}
 
       {/* Documents Tab */}

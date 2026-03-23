@@ -1,21 +1,60 @@
+// components/Sidebar.js — BT Ops + Finance merged sidebar
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/utils/api';
 import {
   LayoutDashboard, Mountain, Calendar, Users, CheckSquare,
-  UserCog, LogOut, Settings as SettingsIcon, Ticket, BarChart3, Bell, X, CalendarDays
+  UserCog, LogOut, Settings as SettingsIcon, Ticket, BarChart3,
+  Bell, X, CalendarDays, Gift, Tag, UsersRound,
+  // Finance icons
+  DollarSign, Receipt, CreditCard, Users2, FileText, BookOpen, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
+const FINANCE_ROLES = ['Super Admin'];
+
+const opsMenu = [
+  { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard',   roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
+  { path: '/treks',     icon: Mountain,         label: 'Trek Master', roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/batches',   icon: Calendar,         label: 'Batches',     roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
+  { path: '/leads',     icon: Users,            label: 'Leads',       roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/checklists',  icon: CheckSquare, label: 'Checklists',  roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
+  { path: '/tasks',       icon: Ticket,      label: 'Tasks',       roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
+  { path: '/my-vouchers', icon: Tag,         label: 'My Vouchers', roles: ['Trek Lead', 'Coordinator'] },
+  { path: '/workload',  icon: BarChart3,        label: 'Workload',    roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/calendar',  icon: CalendarDays,     label: 'Calendar',    roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
+  { path: '/rewards',   icon: Gift,             label: 'Rewards',     roles: ['Super Admin'] },
+  { path: '/users',     icon: UserCog,          label: 'Users',       roles: ['Super Admin'] },
+  { path: '/settings',  icon: SettingsIcon,     label: 'Settings',    roles: ['Super Admin'] },
+  { path: '/meet-the-team', icon: UsersRound,  label: 'Meet the Team', roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
+];
+
+const financeMenu = [
+  { path: '/finance',                    icon: DollarSign, label: 'F&L Dashboard'     },
+  { path: '/finance/batches',            icon: Calendar,   label: 'Finance Batches'   },
+  { path: '/finance/reports',            icon: FileText,   label: 'Reports'           },
+  { path: '/finance/expenses',           icon: Receipt,    label: 'Expenses'          },
+  { path: '/finance/expense-templates',  icon: BookOpen,   label: 'Exp. Templates'    },
+  { path: '/finance/payroll',            icon: CreditCard, label: 'Payroll'           },
+  { path: '/finance/team',              icon: Users2,     label: 'Finance Team'      },
+  { path: '/finance/leads',             icon: Users,      label: 'Finance Leads'     },
+];
+
 const Sidebar = ({ open, onClose }) => {
-  const location = useLocation();
-  const navigate = useNavigate();
+  const location   = useLocation();
+  const navigate   = useNavigate();
   const { userProfile, logout } = useAuth();
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [notifOpen, setNotifOpen] = useState(false);
+
+  const [notifications, setNotifications]   = useState([]);
+  const [unreadCount, setUnreadCount]       = useState(0);
+  const [notifOpen, setNotifOpen]           = useState(false);
+  const [financeOpen, setFinanceOpen]       = useState(
+    location.pathname.startsWith('/finance')
+  );
+
+  const showFinance = FINANCE_ROLES.includes(userProfile?.role);
 
   useEffect(() => {
     fetchNotifications();
@@ -23,16 +62,18 @@ const Sidebar = ({ open, onClose }) => {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => { onClose?.(); }, [location.pathname]);
+
+  // Auto-expand finance section when on a finance route
   useEffect(() => {
-    // Close sidebar on route change (mobile)
-    onClose?.();
+    if (location.pathname.startsWith('/finance')) setFinanceOpen(true);
   }, [location.pathname]);
 
   const fetchNotifications = async () => {
     try {
       const [notifsRes, countRes] = await Promise.all([
         api.get('/notifications'),
-        api.get('/notifications/unread-count')
+        api.get('/notifications/unread-count'),
       ]);
       setNotifications(notifsRes.data.slice(0, 10));
       setUnreadCount(countRes.data.count);
@@ -40,53 +81,48 @@ const Sidebar = ({ open, onClose }) => {
   };
 
   const markAsRead = async (id) => {
-    try {
-      await api.patch(`/notifications/${id}/read`);
-      fetchNotifications();
-    } catch {}
+    try { await api.patch(`/notifications/${id}/read`); fetchNotifications(); } catch {}
   };
-
   const markAllRead = async () => {
-    try {
-      await api.patch('/notifications/read-all');
-      fetchNotifications();
-    } catch {}
+    try { await api.patch('/notifications/read-all'); fetchNotifications(); } catch {}
   };
-
   const handleLogout = async () => {
     try { await logout(); navigate('/login'); } catch {}
   };
 
-  const isActive = (path) => location.pathname === path || location.pathname.startsWith(path + '/');
+  const isActive = (path) =>
+    location.pathname === path || location.pathname.startsWith(path + '/');
 
-  const menuItems = [
-    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
-    { path: '/treks', icon: Mountain, label: 'Trek Master', roles: ['Super Admin', 'Operations Manager'] },
-    { path: '/batches', icon: Calendar, label: 'Batches', roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
-    { path: '/leads', icon: Users, label: 'Leads', roles: ['Super Admin', 'Operations Manager'] },
-    { path: '/checklists', icon: CheckSquare, label: 'Checklists', roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
-    { path: '/tasks', icon: Ticket, label: 'Tasks', roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
-    { path: '/workload', icon: BarChart3, label: 'Workload', roles: ['Super Admin', 'Operations Manager'] },
-    { path: '/calendar', icon: CalendarDays, label: 'Calendar', roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
-    { path: '/users', icon: UserCog, label: 'Users', roles: ['Super Admin'] },
-    { path: '/settings', icon: SettingsIcon, label: 'Settings', roles: ['Super Admin'] },
-  ];
-
-  const filteredMenu = menuItems.filter(item => item.roles.includes(userProfile?.role));
+  const filteredOps = opsMenu.filter(item => item.roles.includes(userProfile?.role));
 
   const formatTime = (ts) => {
     if (!ts) return '';
-    const d = new Date(ts);
-    const now = new Date();
-    const diff = (now - d) / 1000;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    const d    = new Date(ts);
+    const diff = (Date.now() - d) / 1000;
+    if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
     return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
   };
 
+  const NavItem = ({ path, icon: Icon, label }) => {
+    const active = isActive(path);
+    return (
+      <Link
+        to={path}
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm ${
+          active
+            ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+            : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+        }`}
+      >
+        <Icon size={18} strokeWidth={2} />
+        <span className="font-medium">{label}</span>
+      </Link>
+    );
+  };
+
   return (
     <>
-      {/* Mobile overlay */}
       {open && (
         <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={onClose} />
       )}
@@ -98,36 +134,56 @@ const Sidebar = ({ open, onClose }) => {
         ${open ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0
         min-h-screen
       `}>
+        {/* Brand */}
         <div className="p-4 md:p-6 border-b border-slate-800 flex items-center justify-between">
           <div>
             <h1 className="text-lg md:text-xl font-bold text-white heading-font">BT Ops</h1>
-            <p className="text-xs text-slate-400">Operations</p>
+            <p className="text-xs text-slate-400">Operations &amp; Finance</p>
           </div>
           <button className="md:hidden text-slate-400 hover:text-white p-1" onClick={onClose}>
             <X size={20} />
           </button>
         </div>
 
+        {/* Nav */}
         <div className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {filteredMenu.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.path);
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                data-testid={`sidebar-${item.label.toLowerCase().replace(/ /g, '-')}`}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm ${
-                  active ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20' : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                }`}
-              >
-                <Icon size={18} strokeWidth={2} />
-                <span className="font-medium">{item.label}</span>
-              </Link>
-            );
-          })}
+
+          {/* ── Operations section ──── */}
+          <p className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            Operations
+          </p>
+          {filteredOps.map(item => (
+            <NavItem key={item.path} {...item} />
+          ))}
+
+          {/* ── Finance section ──────── */}
+          {showFinance && (
+            <>
+              <div className="pt-3">
+                <button
+                  onClick={() => setFinanceOpen(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-1 text-xs font-semibold text-slate-500 uppercase tracking-wider hover:text-slate-300 transition-colors"
+                >
+                  <span>Finance</span>
+                  {financeOpen
+                    ? <ChevronDown size={14} />
+                    : <ChevronRight size={14} />
+                  }
+                </button>
+              </div>
+
+              {financeOpen && (
+                <div className="space-y-1">
+                  {financeMenu.map(item => (
+                    <NavItem key={item.path} {...item} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
 
+        {/* Footer: notifications + user */}
         <div className="p-3 border-t border-slate-800">
           <Popover open={notifOpen} onOpenChange={setNotifOpen}>
             <PopoverTrigger asChild>
@@ -138,7 +194,7 @@ const Sidebar = ({ open, onClose }) => {
                 <Bell size={18} />
                 <span className="font-medium">Notifications</span>
                 {unreadCount > 0 && (
-                  <span className="absolute top-1.5 left-7 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center" data-testid="notification-count">
+                  <span className="absolute top-1.5 left-7 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
@@ -148,7 +204,9 @@ const Sidebar = ({ open, onClose }) => {
               <div className="p-3 border-b border-slate-200 flex items-center justify-between">
                 <h4 className="font-semibold text-slate-900 text-sm">Notifications</h4>
                 {unreadCount > 0 && (
-                  <button onClick={markAllRead} className="text-xs text-blue-600 hover:text-blue-700 font-medium">Mark all read</button>
+                  <button onClick={markAllRead} className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+                    Mark all read
+                  </button>
                 )}
               </div>
               <div className="max-h-64 overflow-y-auto">
@@ -160,7 +218,6 @@ const Sidebar = ({ open, onClose }) => {
                       key={n.id}
                       className={`p-3 border-b border-slate-100 cursor-pointer hover:bg-slate-50 ${!n.read ? 'bg-blue-50/50' : ''}`}
                       onClick={() => { markAsRead(n.id); if (n.batchId) navigate('/batches'); setNotifOpen(false); }}
-                      data-testid={`notification-item-${n.id}`}
                     >
                       <p className={`text-sm ${!n.read ? 'font-semibold text-slate-900' : 'text-slate-700'}`}>{n.title}</p>
                       <p className="text-xs text-slate-500 mt-1 line-clamp-2">{n.message}</p>
