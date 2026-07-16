@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "BT Ops",
+    "slug": "bt-ops-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "btops",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#f1563f"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.bengalurutrekkers.ops"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#f1563f"
+      },
+      "package": "com.bengalurutrekkers.ops"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import api from '@/utils/api';
-import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { CheckSquare, ListChecks, Clock } from 'lucide-react';
+import { CheckSquare, ListChecks, Clock, CheckCircle2 } from 'lucide-react';
+
+const BRAND = '#f1563f';
 
 const Checklists = () => {
   const [batches, setBatches] = useState([]);
@@ -14,21 +14,17 @@ const Checklists = () => {
   const [checklists, setChecklists] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchBatches();
-  }, []);
+  useEffect(() => { fetchBatches(); }, []);
 
   useEffect(() => {
-    if (selectedBatchId) {
-      fetchChecklists(selectedBatchId);
-    }
+    if (selectedBatchId) fetchChecklists(selectedBatchId);
   }, [selectedBatchId]);
 
   const fetchBatches = async () => {
     try {
       const response = await api.get('/batches');
       setBatches(response.data);
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch batches');
     }
   };
@@ -38,14 +34,13 @@ const Checklists = () => {
     try {
       const response = await api.get(`/checklists/${batchId}`);
       if (response.data.length === 0) {
-        // Create default checklists
         await createDefaultChecklists(batchId);
         const newResponse = await api.get(`/checklists/${batchId}`);
         setChecklists(newResponse.data);
       } else {
         setChecklists(response.data);
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch checklists');
     } finally {
       setLoading(false);
@@ -55,172 +50,191 @@ const Checklists = () => {
   const createDefaultChecklists = async (batchId) => {
     const defaultChecklists = [
       {
-        batchId,
-        type: 'pre',
+        batchId, type: 'pre',
         items: [
-          { task: 'Transport confirmed', status: 'pending', assignedTo: '' },
-          { task: 'Stay confirmed', status: 'pending', assignedTo: '' },
-          { task: 'Forest permits confirmed', status: 'pending', assignedTo: '' },
-          { task: 'Participant list finalized', status: 'pending', assignedTo: '' },
-          { task: 'Medical kit assigned', status: 'pending', assignedTo: '' },
-          { task: 'ID cards printed', status: 'pending', assignedTo: '' },
-          { task: 'Badges packed', status: 'pending', assignedTo: '' }
-        ]
+          { task: 'Transport confirmed',         status: 'pending', assignedTo: '' },
+          { task: 'Stay confirmed',              status: 'pending', assignedTo: '' },
+          { task: 'Forest permits confirmed',    status: 'pending', assignedTo: '' },
+          { task: 'Participant list finalized',  status: 'pending', assignedTo: '' },
+          { task: 'Medical kit assigned',        status: 'pending', assignedTo: '' },
+          { task: 'ID cards printed',            status: 'pending', assignedTo: '' },
+          { task: 'Badges packed',               status: 'pending', assignedTo: '' },
+        ],
       },
       {
-        batchId,
-        type: 'during',
+        batchId, type: 'during',
         items: [
-          { task: 'Attendance marked', status: 'pending', assignedTo: '' },
-          { task: 'Emergency contact list shared', status: 'pending', assignedTo: '' },
-          { task: 'Photos uploaded', status: 'pending', assignedTo: '' }
-        ]
+          { task: 'Attendance marked',                 status: 'pending', assignedTo: '' },
+          { task: 'Emergency contact list shared',     status: 'pending', assignedTo: '' },
+          { task: 'Photos uploaded',                   status: 'pending', assignedTo: '' },
+        ],
       },
       {
-        batchId,
-        type: 'post',
+        batchId, type: 'post',
         items: [
-          { task: 'Feedback collected', status: 'pending', assignedTo: '' },
-          { task: 'Incident report (if any)', status: 'pending', assignedTo: '' },
-          { task: 'Trek marked as completed', status: 'pending', assignedTo: '' }
-        ]
-      }
+          { task: 'Expense sheet submitted',           status: 'pending', assignedTo: '' },
+          { task: 'Feedback collected',                status: 'pending', assignedTo: '' },
+          { task: 'Lost & found checked',              status: 'pending', assignedTo: '' },
+        ],
+      },
     ];
-
-    for (const checklist of defaultChecklists) {
-      await api.post('/checklists', checklist);
-    }
+    await Promise.all(defaultChecklists.map(cl => api.post('/checklists', cl)));
   };
 
   const toggleItemStatus = async (checklistId, itemIndex, currentStatus) => {
+    const newStatus = currentStatus === 'done' ? 'pending' : 'done';
     try {
-      const checklist = checklists.find(c => c.id === checklistId);
-      const updatedItems = [...checklist.items];
-      updatedItems[itemIndex].status = currentStatus === 'done' ? 'pending' : 'done';
-      
-      await api.patch(`/checklists/${checklistId}`, { items: updatedItems });
-      fetchChecklists(selectedBatchId);
-      toast.success('Checklist updated');
-    } catch (error) {
-      toast.error('Failed to update checklist');
+      await api.patch(`/checklists/${checklistId}/items/${itemIndex}`, { status: newStatus });
+      setChecklists(prev => prev.map(cl => {
+        if (cl.id !== checklistId) return cl;
+        const items = [...cl.items];
+        items[itemIndex] = { ...items[itemIndex], status: newStatus };
+        return { ...cl, items };
+      }));
+    } catch {
+      toast.error('Failed to update task');
     }
   };
 
   const getChecklistTitle = (type) => {
-    switch(type) {
-      case 'pre': return 'Pre-Trek Checklist';
-      case 'during': return 'During Trek Checklist';
-      case 'post': return 'Post-Trek Checklist';
-      default: return 'Checklist';
-    }
+    const titles = { pre: 'Pre-Trek', during: 'During Trek', post: 'Post-Trek' };
+    return titles[type] || 'Checklist';
   };
 
   const getChecklistIcon = (type) => {
-    switch(type) {
-      case 'pre': return Clock;
-      case 'during': return CheckSquare;
-      case 'post': return ListChecks;
-      default: return CheckSquare;
-    }
+    const icons = { pre: Clock, during: CheckSquare, post: ListChecks };
+    return icons[type] || CheckSquare;
   };
 
   const selectedBatch = batches.find(b => b.id === selectedBatchId);
 
   return (
-    <div data-testid="checklists-page" className="space-y-5 md:space-y-6">
+    <div data-testid="checklists-page" className="space-y-5">
+
+      {/* Page header */}
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold heading-font text-slate-900">Operational Checklists</h1>
-        <p className="text-slate-600 text-sm mt-1">Track pre, during, and post-trek tasks</p>
+        <h1 className="text-2xl md:text-3xl font-black heading-font text-slate-900">Checklists</h1>
+        <p className="text-slate-400 text-sm mt-0.5">Pre, during, and post-trek task tracking</p>
       </div>
 
-      <div className="max-w-md">
-        <Label className="text-slate-900 font-medium mb-2 block">Select Batch</Label>
+      {/* Batch selector card */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 md:p-5">
+        <Label className="text-slate-600 font-semibold text-xs uppercase tracking-widest mb-2.5 block">
+          Select Batch
+        </Label>
         <Select value={selectedBatchId} onValueChange={setSelectedBatchId}>
-          <SelectTrigger data-testid="batch-selector" className="bg-white">
-            <SelectValue placeholder="Select a batch" />
+          <SelectTrigger data-testid="batch-selector"
+            className="bg-slate-50 border-slate-200 h-11 rounded-xl text-sm font-medium"
+            style={{ '--ring-color': BRAND }}>
+            <SelectValue placeholder="Choose a batch to view checklists…" />
           </SelectTrigger>
           <SelectContent className="bg-white">
             {batches.map(batch => (
               <SelectItem key={batch.id} value={batch.id}>
-                {batch.batchCode} - {new Date(batch.startDate).toLocaleDateString('en-IN')}
+                {batch.batchCode} — {new Date(batch.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+
+        {selectedBatch && (
+          <div className="mt-3 flex items-center gap-3 p-3 rounded-xl border"
+            style={{ borderColor: `${BRAND}30`, background: `${BRAND}07` }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ background: BRAND }}>
+              <CheckSquare size={16} color="#fff" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-900 text-sm">{selectedBatch.batchCode}</p>
+              <p className="text-xs text-slate-500">
+                {new Date(selectedBatch.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} –{' '}
+                {new Date(selectedBatch.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {selectedBatch && (
-        <Card className="border-slate-100 shadow-sm bg-gradient-to-r from-blue-50 to-green-50">
-          <CardContent className="p-6">
-            <h3 className="text-xl font-bold heading-font mb-2">{selectedBatch.batchCode}</h3>
-            <p className="text-slate-600">
-              {new Date(selectedBatch.startDate).toLocaleDateString('en-IN')} - {new Date(selectedBatch.endDate).toLocaleDateString('en-IN')}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
+      {/* Main content */}
       {loading ? (
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <div className="flex flex-col items-center justify-center py-24 gap-3">
+          <div className="w-10 h-10 rounded-full border-[3px] border-slate-100 animate-spin"
+            style={{ borderTopColor: BRAND }} />
+          <p className="text-sm text-slate-400 font-medium">Loading checklists…</p>
         </div>
       ) : selectedBatchId ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {checklists.sort((a, b) => {
-            const order = { pre: 1, during: 2, post: 3 };
-            return order[a.type] - order[b.type];
-          }).map((checklist) => {
-            const Icon = getChecklistIcon(checklist.type);
-            const completedCount = checklist.items.filter(item => item.status === 'done').length;
-            const totalCount = checklist.items.length;
-            const progress = (completedCount / totalCount) * 100;
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {checklists
+            .sort((a, b) => ({ pre: 1, during: 2, post: 3 }[a.type] - { pre: 1, during: 2, post: 3 }[b.type]))
+            .map(checklist => {
+              const Icon = getChecklistIcon(checklist.type);
+              const doneCount = checklist.items.filter(i => i.status === 'done').length;
+              const total = checklist.items.length;
+              const pct = total > 0 ? (doneCount / total) * 100 : 0;
+              const allDone = doneCount === total && total > 0;
 
-            return (
-              <Card key={checklist.id} data-testid={`checklist-${checklist.type}`} className="border-slate-100 shadow-sm">
-                <CardHeader className="border-b border-slate-100 bg-slate-50">
-                  <CardTitle className="heading-font flex items-center gap-2">
-                    <Icon className="text-blue-600" size={20} />
-                    {getChecklistTitle(checklist.type)}
-                  </CardTitle>
-                  <div className="mt-2">
-                    <div className="flex justify-between text-sm text-slate-600 mb-1">
-                      <span>{completedCount}/{totalCount} completed</span>
-                      <span>{Math.round(progress)}%</span>
+              return (
+                <div key={checklist.id} data-testid={`checklist-${checklist.type}`}
+                  className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+
+                  {/* Card header */}
+                  <div className="p-4 border-b border-slate-50">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors"
+                        style={{ background: allDone ? '#22c55e' : `${BRAND}15` }}>
+                        <Icon size={16} style={{ color: allDone ? '#fff' : BRAND }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-black text-slate-900 text-sm">{getChecklistTitle(checklist.type)}</h3>
+                        <p className="text-xs text-slate-400">{doneCount}/{total} completed</p>
+                      </div>
+                      <span className="text-sm font-black tabular-nums"
+                        style={{ color: allDone ? '#22c55e' : BRAND }}>
+                        {Math.round(pct)}%
+                      </span>
                     </div>
-                    <div className="w-full bg-slate-200 rounded-full h-2">
-                      <div 
-                        className="bg-green-600 h-2 rounded-full transition-all"
-                        style={{ width: `${progress}%` }}
-                      ></div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%`, background: allDone ? '#22c55e' : BRAND }} />
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent className="p-4 space-y-3">
-                  {checklist.items.map((item, idx) => (
-                    <div key={idx} data-testid={`checklist-item-${idx}`} className="flex items-start gap-3 p-3 bg-slate-50 rounded-lg">
-                      <Checkbox
-                        checked={item.status === 'done'}
-                        onCheckedChange={() => toggleItemStatus(checklist.id, idx, item.status)}
-                      />
-                      <div className="flex-1">
-                        <p className={`text-sm ${item.status === 'done' ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+
+                  {/* Items list */}
+                  <div className="divide-y divide-slate-50">
+                    {checklist.items.map((item, idx) => (
+                      <label key={idx} data-testid={`checklist-item-${idx}`}
+                        className="flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-slate-50 transition-colors group">
+                        <Checkbox
+                          checked={item.status === 'done'}
+                          onCheckedChange={() => toggleItemStatus(checklist.id, idx, item.status)}
+                          className="w-5 h-5 flex-shrink-0"
+                        />
+                        <p className={`text-sm flex-1 transition-colors leading-snug ${
+                          item.status === 'done' ? 'line-through text-slate-300' : 'text-slate-700 group-hover:text-slate-900'
+                        }`}>
                           {item.task}
                         </p>
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            );
-          })}
+                        {item.status === 'done' && (
+                          <CheckCircle2 size={14} className="flex-shrink-0 text-green-400" />
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
         </div>
       ) : (
-        <Card className="border-slate-100 shadow-sm">
-          <CardContent className="p-12 text-center">
-            <CheckSquare size={48} className="mx-auto mb-4 text-slate-300" />
-            <p className="text-slate-500">Select a batch to view checklists</p>
-          </CardContent>
-        </Card>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm py-20 flex flex-col items-center gap-3 text-center px-6">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+            style={{ background: `${BRAND}12` }}>
+            <CheckSquare size={28} style={{ color: BRAND }} />
+          </div>
+          <p className="font-bold text-slate-800">Select a batch to begin</p>
+          <p className="text-sm text-slate-400 max-w-xs">
+            Choose a batch above to view and manage pre, during, and post-trek task checklists.
+          </p>
+        </div>
       )}
     </div>
   );

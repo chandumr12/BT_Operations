@@ -1,602 +1,1350 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/utils/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Plus, Edit, Trash2, ChevronDown, Star, X, Users, Calendar, MapPin, Search, ChevronLeft, ChevronRight, Filter, AlertTriangle } from 'lucide-react';
+import {
+  Plus, Edit, Trash2, ChevronDown, Star, X, Users, Calendar, MapPin,
+  Search, AlertTriangle, CheckCircle2, TrendingUp, Zap, ArrowUpRight,
+  FolderOpen, Copy, Check, BarChart3, SlidersHorizontal, RefreshCw,
+  Eye, ChevronLeft, ChevronRight, ChevronUp, CalendarCheck, Loader2,
+} from 'lucide-react';
 
-const LeadSelector = ({ selectedLeads, onChange, users }) => {
+// ─── utils ──────────────────────────────────────────────────────────────────
+
+const todayDate = () => { const d = new Date(); d.setHours(0,0,0,0); return d; };
+
+const categorise = (b) => {
+  const t = todayDate();
+  const s = b.startDate ? new Date(b.startDate) : null;
+  const e = b.endDate   ? new Date(b.endDate)   : null;
+  if (!s || !e) return 'upcoming';
+  if (e < t) return 'past';
+  if (s <= t) return 'current';
+  return 'upcoming';
+};
+
+const diffDays = (a, b) => Math.round((a - b) / 86400000);
+
+const daysLabel = (b) => {
+  const t = todayDate();
+  const s = b.startDate ? new Date(b.startDate) : null;
+  const e = b.endDate   ? new Date(b.endDate)   : null;
+  if (!s || !e) return null;
+  if (e < t) {
+    const d = diffDays(t, e);
+    return { text: d === 0 ? 'Ended today' : `Ended ${d}d ago`, cls: 'text-slate-400 bg-slate-100' };
+  }
+  if (s <= t) {
+    const day = diffDays(t, s) + 1;
+    const tot = diffDays(e, s) + 1;
+    return { text: `Day ${day} / ${tot}`, cls: 'text-emerald-700 bg-emerald-100' };
+  }
+  const d = diffDays(s, t);
+  if (d === 0) return { text: 'Starts today!', cls: 'text-orange-700 bg-orange-100' };
+  if (d === 1) return { text: 'Tomorrow',       cls: 'text-orange-600 bg-orange-50' };
+  return { text: `In ${d} days`, cls: 'text-blue-700 bg-blue-100' };
+};
+
+const fmt = (iso, opts = { day:'numeric', month:'short' }) =>
+  iso ? new Date(iso).toLocaleDateString('en-IN', opts) : '—';
+
+const STATUS_CFG = {
+  'Open':         { bg: 'bg-emerald-50',  text: 'text-emerald-700', dot: 'bg-emerald-400',  ring: 'ring-emerald-200' },
+  'Filling Fast': { bg: 'bg-amber-50',    text: 'text-amber-700',   dot: 'bg-amber-400',    ring: 'ring-amber-200' },
+  'Full':         { bg: 'bg-red-50',      text: 'text-red-700',     dot: 'bg-red-400',      ring: 'ring-red-200' },
+  'Closed':       { bg: 'bg-slate-100',   text: 'text-slate-600',   dot: 'bg-slate-400',    ring: 'ring-slate-200' },
+  'Completed':    { bg: 'bg-blue-50',     text: 'text-blue-700',    dot: 'bg-blue-400',     ring: 'ring-blue-200' },
+  'Cancelled':    { bg: 'bg-red-50',      text: 'text-red-400',     dot: 'bg-red-300',      ring: 'ring-red-100' },
+};
+
+const CAT_CFG = {
+  current:  { color: 'border-l-emerald-500', accent: '#10b981', label: 'Running Now', icon: Zap },
+  upcoming: { color: 'border-l-blue-500',    accent: '#3b82f6', label: 'Upcoming',    icon: ArrowUpRight },
+  past:     { color: 'border-l-slate-300',   accent: '#94a3b8', label: 'Past',        icon: CheckCircle2 },
+};
+
+const PAGE_SIZE = 10;
+
+// ─── LeadSelector ────────────────────────────────────────────────────────────
+
+function LeadSelector({ selectedLeads, onChange, users }) {
   const [open, setOpen] = useState(false);
-  const [leadSearch, setLeadSearch] = useState('');
+  const [q, setQ]       = useState('');
 
-  const toggleUser = (user) => {
-    const exists = selectedLeads.find(l => l.userId === user.uid);
-    if (exists) {
-      onChange(selectedLeads.filter(l => l.userId !== user.uid));
-    } else {
-      onChange([...selectedLeads, { userId: user.uid, displayName: user.displayName, isSuperLead: selectedLeads.length === 0 }]);
-    }
+  const toggle = (u) => {
+    const has = selectedLeads.find(l => l.userId === u.uid);
+    if (has) onChange(selectedLeads.filter(l => l.userId !== u.uid));
+    else onChange([...selectedLeads, { userId: u.uid, displayName: u.displayName, isSuperLead: selectedLeads.length === 0 }]);
   };
-
-  const toggleSuperLead = (userId) => {
-    onChange(selectedLeads.map(l => ({ ...l, isSuperLead: l.userId === userId })));
-  };
-
-  const removeLead = (userId) => {
-    const updated = selectedLeads.filter(l => l.userId !== userId);
-    if (updated.length > 0 && !updated.some(l => l.isSuperLead)) {
-      updated[0].isSuperLead = true;
-    }
-    onChange(updated);
+  const makeSuperLead = (uid) => onChange(selectedLeads.map(l => ({ ...l, isSuperLead: l.userId === uid })));
+  const remove = (uid) => {
+    const upd = selectedLeads.filter(l => l.userId !== uid);
+    if (upd.length && !upd.some(l => l.isSuperLead)) upd[0].isSuperLead = true;
+    onChange(upd);
   };
 
   return (
     <div>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button variant="outline" className="w-full justify-between bg-white h-auto min-h-[40px] py-2 text-left font-normal" data-testid="lead-selector-trigger">
-            <span className="flex-1 text-sm">
-              {selectedLeads.length === 0 ? <span className="text-slate-500">Select trek leads...</span> : `${selectedLeads.length} lead(s) selected`}
-            </span>
-            <ChevronDown size={16} className="text-slate-400" />
+          <Button variant="outline" className="w-full justify-between bg-white h-10 font-normal text-sm">
+            {selectedLeads.length === 0
+              ? <span className="text-slate-400">Select trek leads…</span>
+              : <span className="text-slate-700 font-medium">{selectedLeads.length} lead(s) selected</span>}
+            <ChevronDown size={14} className="text-slate-400" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-72 p-2 bg-white" align="start">
-          {/* Search box */}
+        <PopoverContent className="w-72 p-2 bg-white shadow-xl border border-slate-100 rounded-xl" align="start">
           <div className="relative mb-2">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search leads..."
-              value={leadSearch}
-              onChange={e => setLeadSearch(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200 bg-slate-50"
-              autoFocus
-            />
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input type="text" placeholder="Search…" value={q} onChange={e => setQ(e.target.value)} autoFocus
+              className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-200 bg-slate-50" />
           </div>
-          <div className="space-y-1 max-h-52 overflow-y-auto">
-            {users
-              .filter(u => !leadSearch || u.displayName?.toLowerCase().includes(leadSearch.toLowerCase()))
-              .map(u => (
-                <label key={u.uid} className="flex items-center gap-2 p-2 rounded hover:bg-slate-50 cursor-pointer">
-                  <Checkbox checked={!!selectedLeads.find(l => l.userId === u.uid)} onCheckedChange={() => toggleUser(u)} />
-                  <span className="text-sm text-slate-900">{u.displayName}</span>
-                  <Badge variant="outline" className="text-xs ml-auto">{u.role}</Badge>
-                </label>
-              ))}
-            {users.filter(u => !leadSearch || u.displayName?.toLowerCase().includes(leadSearch.toLowerCase())).length === 0 && (
-              <p className="text-sm text-slate-400 p-2 text-center">No leads found</p>
-            )}
+          <div className="max-h-52 overflow-y-auto space-y-0.5">
+            {users.filter(u => !q || u.displayName?.toLowerCase().includes(q.toLowerCase())).map(u => (
+              <label key={u.uid} className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-slate-50 cursor-pointer">
+                <Checkbox checked={!!selectedLeads.find(l => l.userId === u.uid)} onCheckedChange={() => toggle(u)} />
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-orange-400 to-rose-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+                  {u.displayName?.charAt(0)?.toUpperCase()}
+                </div>
+                <span className="text-sm text-slate-800 flex-1">{u.displayName}</span>
+              </label>
+            ))}
           </div>
         </PopoverContent>
       </Popover>
-
       {selectedLeads.length > 0 && (
         <div className="mt-2 space-y-1.5">
-          {selectedLeads.map(lead => (
-            <div key={lead.userId} className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg" data-testid={`assigned-lead-${lead.userId}`}>
-              <div className="w-7 h-7 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                {lead.displayName?.charAt(0)?.toUpperCase()}
+          {selectedLeads.map(l => (
+            <div key={l.userId} className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-xl border border-slate-100">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-400 to-rose-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                {l.displayName?.charAt(0)?.toUpperCase()}
               </div>
-              <span className="text-sm font-medium text-slate-900 flex-1">{lead.displayName}</span>
-              <button
-                type="button"
-                onClick={() => toggleSuperLead(lead.userId)}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium transition-colors ${lead.isSuperLead ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600 hover:bg-amber-50'}`}
-                title={lead.isSuperLead ? 'Super Lead' : 'Click to make Super Lead'}
-                data-testid={`super-lead-toggle-${lead.userId}`}
-              >
-                <Star size={12} className={lead.isSuperLead ? 'fill-amber-500' : ''} />
-                {lead.isSuperLead ? 'Super Lead' : 'Lead'}
+              <span className="text-sm font-medium text-slate-900 flex-1">{l.displayName}</span>
+              <button type="button" onClick={() => makeSuperLead(l.userId)}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold transition-colors ${l.isSuperLead ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-500 hover:bg-amber-50'}`}>
+                <Star size={10} className={l.isSuperLead ? 'fill-amber-500' : ''} />{l.isSuperLead ? 'Super Lead' : 'Lead'}
               </button>
-              <button type="button" onClick={() => removeLead(lead.userId)} className="p-1 rounded hover:bg-red-100 text-slate-400 hover:text-red-500">
-                <X size={14} />
-              </button>
+              <button type="button" onClick={() => remove(l.userId)} className="p-1 rounded-lg hover:bg-red-50 text-slate-300 hover:text-red-400 transition-colors"><X size={13} /></button>
             </div>
           ))}
         </div>
       )}
     </div>
   );
-};
+}
 
-const BatchPlanning = () => {
-  const navigate = useNavigate();
-  const { userProfile } = useAuth();
-  const isAdmin = ['Super Admin', 'Operations Manager'].includes(userProfile?.role);
-  const [batches, setBatches] = useState([]);
-  const [treks, setTreks] = useState([]);
-  const [leads, setLeads] = useState([]);
-  const [allUsers, setAllUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingBatch, setEditingBatch] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // batch to delete
+// ─── BatchForm dialog ────────────────────────────────────────────────────────
 
-  // Search + filter + pagination
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [currentPage, setCurrentPage] = useState(1);
-  const PAGE_SIZE = 10;
+function BatchFormDialog({ open, onOpenChange, editingBatch, treks, allUsers, onSave }) {
+  const blank = { batchCode:'', trekId:'', startDate:'', endDate:'', maxCapacity:30, currentRegistrations:0, status:'Open', assignedLeads:[], transportVendor:'', stayVendor:'', internalNotes:'' };
+  const [form, setForm] = useState(blank);
 
-  const [formData, setFormData] = useState({
-    batchCode: '', trekId: '', startDate: '', endDate: '',
-    maxCapacity: 30, currentRegistrations: 0, status: 'Open',
-    assignedLeads: [], transportVendor: '', stayVendor: '', internalNotes: ''
-  });
+  useEffect(() => {
+    setForm(editingBatch ? {
+      batchCode: editingBatch.batchCode||'', trekId: editingBatch.trekId||'',
+      startDate: editingBatch.startDate||'', endDate: editingBatch.endDate||'',
+      maxCapacity: editingBatch.maxCapacity||30, currentRegistrations: editingBatch.currentRegistrations||0,
+      status: editingBatch.status||'Open', assignedLeads: editingBatch.assignedLeads||[],
+      transportVendor: editingBatch.transportVendor||'', stayVendor: editingBatch.stayVendor||'',
+      internalNotes: editingBatch.internalNotes||'',
+    } : blank);
+  }, [editingBatch, open]);
 
-  useEffect(() => { fetchData(); }, []);
-
-  const fetchData = async () => {
-    try {
-      const [batchesRes, treksRes, leadsRes] = await Promise.all([
-        api.get('/batches'),
-        api.get('/treks'),
-        api.get('/users/basic')
-      ]);
-      const sorted = [...batchesRes.data].sort((a, b) => {
-        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return tb - ta;
-      });
-      setBatches(sorted);
-      setTreks(treksRes.data);
-      setAllUsers(leadsRes.data.filter(u => u.status === 'approved'));
-    } catch (error) {
-      toast.error('Failed to fetch data');
-    }
-    // Also load old leads collection for backward compat display
-    try {
-      const leadsRes = await api.get('/leads');
-      setLeads(leadsRes.data);
-    } catch {}
-    setLoading(false);
-  };
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    await onSave(form);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto bg-white rounded-2xl p-0">
+        <DialogHeader className="sr-only">
+          <DialogTitle>{editingBatch ? `Edit ${editingBatch.batchCode}` : 'Create New Batch'}</DialogTitle>
+        </DialogHeader>
+        <div className="px-5 py-4 text-white rounded-t-2xl flex items-center gap-3 flex-shrink-0" style={{ background: '#f1563f' }}>
+          <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+            {editingBatch ? <Edit size={16} /> : <Plus size={16} />}
+          </div>
+          <div>
+            <h2 className="font-black text-base">{editingBatch ? `Edit — ${editingBatch.batchCode}` : 'Create New Batch'}</h2>
+            <p className="text-white/65 text-xs mt-0.5">{editingBatch ? 'Update batch details and assignments' : 'Add a new trek batch to the system'}</p>
+          </div>
+        </div>
+        <div className="p-5 md:p-6">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Batch Code + Trek */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">Batch Code *</Label>
+              <Input value={form.batchCode} onChange={e => set('batchCode', e.target.value)} placeholder="e.g. BT501" required className="bg-slate-50 border-slate-200 focus:bg-white" data-testid="batch-code-input" />
+            </div>
+            <div>
+              <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">Trek *</Label>
+              <Select value={form.trekId} onValueChange={v => set('trekId', v)}>
+                <SelectTrigger className="bg-slate-50 border-slate-200 focus:bg-white"><SelectValue placeholder="Select trek" /></SelectTrigger>
+                <SelectContent className="bg-white">{treks.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+          {/* Dates */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">Start Date *</Label>
+              <Input type="date" value={form.startDate} onChange={e => set('startDate', e.target.value)} required className="bg-slate-50 border-slate-200 focus:bg-white" />
+            </div>
+            <div>
+              <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">End Date *</Label>
+              <Input type="date" value={form.endDate} onChange={e => set('endDate', e.target.value)} required className="bg-slate-50 border-slate-200 focus:bg-white" />
+            </div>
+          </div>
+          {/* Capacity + Status */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">Max Capacity *</Label>
+              <Input type="number" value={form.maxCapacity} onChange={e => set('maxCapacity', parseInt(e.target.value)||0)} required className="bg-slate-50 border-slate-200" />
+            </div>
+            <div>
+              <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">Registrations</Label>
+              <Input type="number" value={form.currentRegistrations} onChange={e => set('currentRegistrations', parseInt(e.target.value)||0)} className="bg-slate-50 border-slate-200" />
+            </div>
+            <div>
+              <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">Status</Label>
+              <Select value={form.status} onValueChange={v => set('status', v)}>
+                <SelectTrigger className="bg-slate-50 border-slate-200"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-white">{['Open','Closed','Completed','Cancelled'].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          </div>
+          {/* Leads */}
+          <div>
+            <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block flex items-center gap-1.5"><Users size={12} /> Assign Trek Leads</Label>
+            <LeadSelector selectedLeads={form.assignedLeads} onChange={v => set('assignedLeads', v)} users={allUsers} />
+          </div>
+          {/* Vendors */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">🚌 Transport Vendor</Label>
+              <Input value={form.transportVendor} onChange={e => set('transportVendor', e.target.value)} placeholder="e.g. Sharma Travels" className="bg-slate-50 border-slate-200" />
+            </div>
+            <div>
+              <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">🏕️ Stay Vendor</Label>
+              <Input value={form.stayVendor} onChange={e => set('stayVendor', e.target.value)} placeholder="e.g. Forest Huts" className="bg-slate-50 border-slate-200" />
+            </div>
+          </div>
+          {/* Notes */}
+          <div>
+            <Label className="text-slate-700 font-semibold text-xs uppercase tracking-wide mb-1.5 block">Internal Notes</Label>
+            <Textarea value={form.internalNotes} onChange={e => set('internalNotes', e.target.value)} rows={2} className="bg-slate-50 border-slate-200" placeholder="Visible to ops team only…" />
+          </div>
+          <div className="flex gap-3 pt-1 border-t border-slate-100">
+            <Button type="submit" className="flex-1 bg-[#f1563f] hover:bg-[#d94530] text-white font-semibold" data-testid="save-batch-btn">
+              {editingBatch ? 'Save Changes' : 'Create Batch'}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          </div>
+        </form>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── BatchCard ───────────────────────────────────────────────────────────────
+
+function BatchCard({ batch, trekName, category, isAdmin, canManageDrive, driveUrl, creatingFolder, copiedFolder, onEdit, onDelete, onManage, onCreateFolder, onCopyLink, onStatusChange, selected, onSelect, showSelect }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const sc  = STATUS_CFG[batch.status] || STATUS_CFG['Closed'];
+  const dl  = daysLabel(batch);
+  const cfg = CAT_CFG[category];
+
+  return (
+    <div className={`bg-white rounded-2xl border border-slate-200 border-l-4 ${cfg.color} shadow-sm hover:shadow-lg transition-all duration-200 ${selected ? 'ring-2 ring-orange-400 ring-offset-1' : ''}`}>
+      {/* Card header */}
+      <div className="p-5">
+        <div className="flex items-start gap-3">
+          {showSelect && <div className="pt-1 flex-shrink-0"><Checkbox checked={selected} onCheckedChange={onSelect} /></div>}
+
+          <div className="flex-1 min-w-0">
+            {/* Row 1: code + badges + collapse */}
+            <div className="flex items-center gap-2.5 flex-wrap mb-1">
+              <span className="text-lg font-extrabold text-slate-900 tracking-tight">{batch.batchCode}</span>
+
+              {/* Status badge */}
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold ring-1 ${sc.bg} ${sc.text} ${sc.ring}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                {batch.status}
+              </span>
+
+              {/* Timeline pill */}
+              {dl && <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${dl.cls}`}>{dl.text}</span>}
+
+              {/* Trek name inline */}
+              <span className="text-sm text-slate-400 font-medium flex items-center gap-1 ml-1">
+                <MapPin size={11} className="text-slate-300" />{trekName}
+              </span>
+            </div>
+
+            {/* Row 2: dates + capacity + leads */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-3">
+              {/* Dates */}
+              <div className="flex items-center gap-1.5">
+                <Calendar size={13} className="text-slate-300 flex-shrink-0" />
+                <span className="text-sm font-medium text-slate-600">{fmt(batch.startDate)} → {fmt(batch.endDate, { day:'numeric', month:'short', year:'numeric' })}</span>
+              </div>
+
+              {/* Capacity */}
+              <div className="flex items-center gap-1.5">
+                <Users size={13} className="text-slate-300 flex-shrink-0" />
+                <span className="text-sm font-bold text-slate-700">{batch.currentRegistrations}<span className="text-slate-400 font-normal">/{batch.maxCapacity}</span></span>
+              </div>
+
+              {/* Leads */}
+              {batch.assignedLeads?.length > 0 ? (
+                <div className="flex items-center gap-1 flex-wrap">
+                  {batch.assignedLeads.map(l => (
+                    <span key={l.userId} className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${l.isSuperLead ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-slate-50 text-slate-500 ring-slate-200'}`}>
+                      {l.isSuperLead && <Star size={9} className="fill-amber-500" />}{l.displayName}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-[11px] text-slate-300 italic">No leads assigned</span>
+              )}
+
+              {/* Vendors */}
+              {(batch.transportVendor || batch.stayVendor) && (
+                <div className="flex items-center gap-3">
+                  {batch.transportVendor && <span className="text-[11px] text-slate-400">🚌 {batch.transportVendor}</span>}
+                  {batch.stayVendor      && <span className="text-[11px] text-slate-400">🏕️ {batch.stayVendor}</span>}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Actions column */}
+          <div className="flex flex-col gap-1.5 flex-shrink-0 items-end">
+            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+              {canManageDrive && (
+                driveUrl ? (
+                  <>
+                    <a href={driveUrl} target="_blank" rel="noopener noreferrer"
+                      className="h-8 px-3 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-xl flex items-center gap-1.5 transition-colors whitespace-nowrap">
+                      <FolderOpen size={12} /> Photos
+                    </a>
+                    <button onClick={onCopyLink}
+                      className="h-8 px-3 text-xs font-medium text-slate-500 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl flex items-center gap-1.5 transition-colors">
+                      {copiedFolder ? <><Check size={12} className="text-emerald-500" />Copied</> : <><Copy size={12} />Copy</>}
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={onCreateFolder} disabled={creatingFolder}
+                    className="h-8 px-3 text-xs font-medium text-emerald-600 bg-white border border-emerald-200 hover:bg-emerald-50 rounded-xl flex items-center gap-1.5 transition-colors disabled:opacity-50 whitespace-nowrap">
+                    <FolderOpen size={12} />{creatingFolder ? 'Creating…' : 'Add Folder'}
+                  </button>
+                )
+              )}
+              {isAdmin && (
+                <button onClick={onEdit} className="h-8 px-3 text-xs font-medium text-slate-500 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl flex items-center gap-1.5 transition-colors">
+                  <Edit size={12} /> Edit
+                </button>
+              )}
+              {isAdmin && (
+                <button onClick={onDelete} className="h-8 w-8 flex items-center justify-center text-red-300 bg-white border border-red-100 hover:bg-red-50 hover:text-red-500 rounded-xl transition-colors">
+                  <Trash2 size={13} />
+                </button>
+              )}
+              <button onClick={onManage}
+                className="h-8 px-4 text-xs font-bold bg-[#f1563f] text-white hover:bg-[#d94530] rounded-xl flex items-center gap-1.5 transition-colors whitespace-nowrap">
+                <Eye size={12} /> Manage
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Quick status — collapsible */}
+        {isAdmin && (
+          <div className="mt-3 pt-3 border-t border-slate-50 flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Status</span>
+            {['Open','Closed','Completed','Cancelled'].map(s => (
+              <button key={s} onClick={() => onStatusChange(batch.id, s)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all ${
+                  batch.status === s
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                    : 'border-slate-200 text-slate-400 hover:border-slate-400 hover:text-slate-600 bg-white'
+                }`}>
+                {s}
+              </button>
+            ))}
+            {batch.internalNotes && (
+              <span className="ml-auto text-[11px] text-slate-400 italic truncate max-w-[200px]" title={batch.internalNotes}>
+                📝 {batch.internalNotes}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Section block ────────────────────────────────────────────────────────────
+
+function Section({ cat, batches, collapsed, onToggle, children }) {
+  const cfg = CAT_CFG[cat];
+  const Icon = cfg.icon;
+  const colors = {
+    current:  'text-emerald-600 bg-emerald-50 border-emerald-200',
+    upcoming: 'text-blue-600 bg-blue-50 border-blue-200',
+    past:     'text-slate-500 bg-slate-50 border-slate-200',
+  };
+  return (
+    <div>
+      <button onClick={onToggle}
+        className={`w-full flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-sm font-bold transition-all mb-3 ${colors[cat]}`}>
+        <Icon size={15} />
+        <span>{cfg.label}</span>
+        <span className="ml-1 text-xs font-bold opacity-70">({batches.length})</span>
+        <div className="flex-1" />
+        {collapsed ? <ChevronRight size={14} /> : <ChevronUp size={14} />}
+      </button>
+      {!collapsed && <div className="space-y-3">{children}</div>}
+    </div>
+  );
+}
+
+// ─── AvailabilityTab ─────────────────────────────────────────────────────────
+
+const BRAND = '#f1563f';
+
+const GENDER_COLORS = {
+  male:   { bg: 'bg-blue-50',   text: 'text-blue-700' },
+  female: { bg: 'bg-rose-50',   text: 'text-rose-600' },
+  other:  { bg: 'bg-slate-100', text: 'text-slate-600' },
+};
+
+const AV_CAT_META = {
+  weekday:   { label: 'Weekday',   color: '#3b82f6', bg: '#eff6ff' },
+  weekend:   { label: 'Weekend',   color: '#7c3aed', bg: '#f5f3ff' },
+  himalayan: { label: 'Himalayan', color: '#059669', bg: '#ecfdf5' },
+};
+
+const WEEK_OPTS = [1, 2, 3, 4];
+
+const fmtAvDate = (iso) => {
+  if (!iso) return '?';
+  try {
+    const d = new Date(iso + 'T00:00:00');
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+  } catch { return iso; }
+};
+
+// ── Month label helper ────────────────────────────────────────────────────────
+const fmtMonth = (m) => {
+  try { return new Date(m + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }); }
+  catch { return m; }
+};
+
+// ── Slot form (inline) ────────────────────────────────────────────────────────
+function SlotFormInline({ form, setForm, onSave, onCancel, saving, isEdit }) {
+  return (
+    <div className="mt-2 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="px-4 pt-3 pb-1">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+          {isEdit ? 'Edit slot' : 'New slot'}
+        </p>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold text-slate-500 uppercase">Departure</p>
+            <input type="date" value={form.deptDate}
+              onChange={e => setForm(p => ({...p, deptDate: e.target.value}))}
+              className="w-full h-9 border border-slate-200 rounded-xl px-3 text-xs bg-slate-50 focus:outline-none focus:border-orange-300" />
+          </div>
+          <div className="space-y-1">
+            <p className="text-[10px] font-bold text-slate-500 uppercase">Return</p>
+            <input type="date" value={form.returnDate}
+              onChange={e => setForm(p => ({...p, returnDate: e.target.value}))}
+              className="w-full h-9 border border-slate-200 rounded-xl px-3 text-xs bg-slate-50 focus:outline-none focus:border-orange-300" />
+          </div>
+        </div>
+        <input type="text" placeholder="Trek name (optional)"
+          value={form.trekName}
+          onChange={e => setForm(p => ({...p, trekName: e.target.value}))}
+          className="w-full h-9 border border-slate-200 rounded-xl px-3 text-xs bg-slate-50 focus:outline-none focus:border-orange-300 mb-3" />
+      </div>
+      <div className="grid grid-cols-2 border-t border-slate-100">
+        <button onClick={onCancel}
+          className="py-2.5 text-xs font-semibold text-slate-500 hover:bg-slate-50 transition-colors border-r border-slate-100">
+          Cancel
+        </button>
+        <button onClick={onSave} disabled={saving}
+          className="py-2.5 text-xs font-bold text-white transition-colors"
+          style={{ background: BRAND }}>
+          {saving ? '…' : isEdit ? 'Update' : 'Add slot'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AvailabilityTab({ isAdmin }) {
+  const now = new Date().toISOString().slice(0, 7);
+  const [subTab,      setSubTab]      = useState('set');
+  const [config,      setConfig]      = useState({ activeMonths: [now] });
+  const [activeMonths, setActiveMonths] = useState([now]);
+  const [viewMonth,   setViewMonth]   = useState(now);   // which month is selected for slots/responses
+  const [slots,       setSlots]       = useState([]);
+  const [allLeads,    setAllLeads]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [saving,      setSaving]      = useState(false);
+  const [copied,      setCopied]      = useState(false);
+  const [weekFilter,  setWeekFilter]  = useState('all');
+  const [addMonthVal, setAddMonthVal] = useState('');
+
+  // Slot editing
+  const [addingSlot,  setAddingSlot]  = useState(null);
+  const [slotForm,    setSlotForm]    = useState({ deptDate: '', returnDate: '', trekName: '' });
+  const [editingSlot, setEditingSlot] = useState(null);
+
+  const fetchSlotData = useCallback(async (month) => {
     try {
-      if (editingBatch) {
-        await api.patch(`/batches/${editingBatch.id}`, formData);
-        toast.success('Batch updated successfully');
+      const [leadsRes, slotRes] = await Promise.all([
+        api.get('/availability/all', { params: { month } }),
+        api.get('/availability/slots', { params: { month } }),
+      ]);
+      setAllLeads(leadsRes.data || []);
+      setSlots(slotRes.data || []);
+    } catch { toast.error('Failed to load data'); }
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    api.get('/availability/config')
+      .then(r => {
+        const cfg = r.data || {};
+        const months = cfg.activeMonths?.length ? cfg.activeMonths : [cfg.activeMonth || now];
+        setConfig(cfg);
+        setActiveMonths(months);
+        const vm = months[0];
+        setViewMonth(vm);
+        return fetchSlotData(vm);
+      })
+      .catch(() => fetchSlotData(now))
+      .finally(() => setLoading(false));
+  }, [fetchSlotData, now]);
+
+  const switchMonth = (m) => { setViewMonth(m); setWeekFilter('all'); fetchSlotData(m); };
+
+  // ── Active months management ──────────────────────────────────────────────
+  const saveActiveMonths = async (months) => {
+    setSaving(true);
+    try {
+      await api.put('/availability/config', { activeMonths: months });
+      setActiveMonths(months);
+      setConfig(prev => ({ ...prev, activeMonths: months }));
+      toast.success('Active months updated');
+      if (!months.includes(viewMonth)) { switchMonth(months[0] || now); }
+    } catch { toast.error('Failed to save'); }
+    finally { setSaving(false); }
+  };
+
+  const removeActiveMonth = (m) => saveActiveMonths(activeMonths.filter(x => x !== m));
+
+  const addActiveMonth = () => {
+    if (!addMonthVal) return;
+    if (activeMonths.includes(addMonthVal)) { toast.error('Already active'); return; }
+    if (activeMonths.length >= 2) { toast.error('Max 2 active months'); return; }
+    const next = [...activeMonths, addMonthVal].sort();
+    saveActiveMonths(next);
+    setAddMonthVal('');
+  };
+
+  // ── Slot actions ──────────────────────────────────────────────────────────
+  const saveSlot = async () => {
+    if (!slotForm.deptDate || !slotForm.returnDate) { toast.error('Set departure and return dates'); return; }
+    setSaving(true);
+    try {
+      if (editingSlot) {
+        await api.patch(`/availability/slots/${editingSlot.id}`, {
+          deptDate: slotForm.deptDate, returnDate: slotForm.returnDate,
+          trekName: slotForm.trekName || null,
+        });
       } else {
-        await api.post('/batches', formData);
-        toast.success('Batch created successfully');
+        await api.post('/availability/slots', {
+          month: viewMonth, week: addingSlot.week, category: addingSlot.category,
+          deptDate: slotForm.deptDate, returnDate: slotForm.returnDate,
+          trekName: slotForm.trekName || null,
+        });
       }
-      setDialogOpen(false);
-      resetForm();
-      fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to save batch');
+      setAddingSlot(null); setEditingSlot(null); setSlotForm({ deptDate: '', returnDate: '', trekName: '' });
+      fetchSlotData(viewMonth);
+    } catch { toast.error('Failed to save slot'); }
+    finally { setSaving(false); }
+  };
+
+  const deleteSlot = async (slotId) => {
+    try { await api.delete(`/availability/slots/${slotId}`); fetchSlotData(viewMonth); }
+    catch { toast.error('Failed to delete'); }
+  };
+
+  const startAdd = (week, category) => {
+    setEditingSlot(null);
+    setSlotForm({ deptDate: '', returnDate: '', trekName: '' });
+    setAddingSlot({ week, category });
+  };
+
+  const startEdit = (slot) => {
+    setAddingSlot({ week: slot.week, category: slot.category });
+    setEditingSlot(slot);
+    setSlotForm({ deptDate: slot.deptDate || '', returnDate: slot.returnDate || '', trekName: slot.trekName || '' });
+  };
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const slotMap = useMemo(() => { const m = {}; slots.forEach(s => { m[s.id] = s; }); return m; }, [slots]);
+
+  const filteredLeads = useMemo(() => {
+    if (weekFilter === 'all') return allLeads;
+    const wk = parseInt(weekFilter.replace('week', ''), 10);
+    return allLeads.filter(lead =>
+      (lead.selectedSlotIds || []).some(id => slotMap[id]?.week === wk)
+    );
+  }, [allLeads, slotMap, weekFilter]);
+
+  const males   = filteredLeads.filter(l => l.gender?.toLowerCase() === 'male').length;
+  const females = filteredLeads.filter(l => l.gender?.toLowerCase() === 'female').length;
+
+  const groupedSlots = useMemo(() => {
+    const g = {};
+    slots.forEach(s => {
+      if (!g[s.week]) g[s.week] = {};
+      if (!g[s.week][s.category]) g[s.week][s.category] = [];
+      g[s.week][s.category].push(s);
+    });
+    return g;
+  }, [slots]);
+
+  const totalSlots = slots.length;
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center py-24 gap-3">
+      <Loader2 size={28} className="animate-spin" style={{ color: BRAND }} />
+      <p className="text-sm text-slate-400">Loading…</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Share link ─────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-4 pt-4 pb-3">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Share with leads</p>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-xs font-mono text-slate-500 truncate">
+              {window.location.origin}/my-availability
+            </div>
+            <button
+              onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/my-availability`); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+              className="flex-shrink-0 h-9 px-4 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 transition-colors"
+              style={{ background: copied ? '#22c55e' : BRAND }}>
+              {copied ? <><Check size={12} /> Copied!</> : <><Copy size={12} /> Copy Link</>}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Active months manager ───────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Active months for leads</p>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {activeMonths.map(m => (
+            <div key={m} className="flex items-center gap-1.5 pl-3 pr-2 py-1.5 rounded-full text-xs font-bold text-white"
+              style={{ background: BRAND }}>
+              {fmtMonth(m)}
+              <button onClick={() => removeActiveMonth(m)}
+                className="w-4 h-4 rounded-full bg-white/20 hover:bg-white/40 flex items-center justify-center transition-colors">
+                <X size={9} />
+              </button>
+            </div>
+          ))}
+          {activeMonths.length === 0 && (
+            <p className="text-xs text-slate-400 italic">No active month — leads can't submit availability.</p>
+          )}
+        </div>
+        {activeMonths.length < 2 && (
+          <div className="flex gap-2 items-center">
+            <input type="month" value={addMonthVal} onChange={e => setAddMonthVal(e.target.value)}
+              className="h-9 px-3 text-xs border border-slate-200 rounded-xl bg-slate-50 font-medium focus:outline-none flex-shrink-0" />
+            <button onClick={addActiveMonth} disabled={!addMonthVal || saving}
+              className="h-9 px-4 text-xs font-bold rounded-xl text-white flex items-center gap-1 disabled:opacity-40"
+              style={{ background: BRAND }}>
+              <Plus size={12} /> Add month
+            </button>
+          </div>
+        )}
+        {activeMonths.length >= 2 && (
+          <p className="text-[11px] text-slate-400">Max 2 active months. Remove one to add another.</p>
+        )}
+      </div>
+
+      {/* ── Month tab strip ─────────────────────────────────────────────────── */}
+      {activeMonths.length > 0 && (
+        <div className="flex gap-1.5">
+          {activeMonths.map(m => (
+            <button key={m} onClick={() => switchMonth(m)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${viewMonth === m ? 'text-white shadow-sm' : 'text-slate-500 bg-white border border-slate-200 hover:bg-slate-50'}`}
+              style={viewMonth === m ? { background: BRAND } : {}}>
+              {fmtMonth(m)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Sub-tabs ─────────────────────────────────────────────────────────── */}
+      <div className="flex gap-1.5 border-b border-slate-100 pb-0">
+        {[
+          { key: 'set',       label: 'Set Availability' },
+          { key: 'responses', label: 'Lead Responses'   },
+        ].map(({ key, label }) => (
+          <button key={key} onClick={() => setSubTab(key)}
+            className={`px-4 py-2 text-xs font-bold rounded-t-xl transition-all border-b-2 ${
+              subTab === key
+                ? 'border-b-2 text-white shadow-sm rounded-xl border-transparent'
+                : 'border-transparent text-slate-500 bg-white border border-slate-200 hover:bg-slate-50'
+            }`}
+            style={subTab === key ? { background: BRAND } : {}}>
+            {label}
+          </button>
+        ))}
+        <div className="ml-auto flex items-center gap-1 text-[11px] text-slate-400 font-semibold pb-1">
+          <span>{allLeads.length} leads</span>
+          <span className="text-slate-200">·</span>
+          <span>{totalSlots} slots</span>
+        </div>
+      </div>
+
+      {/* ══ SET AVAILABILITY — horizontal week columns ══════════════════════════ */}
+      {subTab === 'set' && (
+        <div className="overflow-x-auto pb-2 -mx-1 px-1">
+          <div className="grid grid-cols-4 gap-3 min-w-[720px]">
+            {WEEK_OPTS.map(week => {
+              const weekSlots = groupedSlots[week] || {};
+              const weekTotal = Object.values(weekSlots).reduce((s, a) => s + a.length, 0);
+              return (
+                <div key={week} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+                  {/* Week header */}
+                  <div className="flex items-center gap-2 px-3 py-2.5"
+                    style={{ borderTop: `3px solid ${BRAND}`, background: `${BRAND}06` }}>
+                    <p className="font-black text-slate-900 text-sm">Week {week}</p>
+                    {weekTotal > 0 && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full text-white"
+                        style={{ background: BRAND }}>{weekTotal}</span>
+                    )}
+                  </div>
+
+                  {/* Category sections */}
+                  {['weekday', 'weekend', 'himalayan'].map(cat => {
+                    const meta = AV_CAT_META[cat];
+                    const catSlots = weekSlots[cat] || [];
+                    const isAddingHere = addingSlot?.week === week && addingSlot?.category === cat && !editingSlot;
+
+                    return (
+                      <div key={cat} className="border-t border-slate-50 flex-1">
+                        {/* Category row */}
+                        <div className="px-3 py-2 flex items-center justify-between"
+                          style={{ background: meta.bg }}>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full" style={{ background: meta.color }} />
+                            <span className="text-[10px] font-black uppercase tracking-wider"
+                              style={{ color: meta.color }}>{meta.label}</span>
+                            {catSlots.length > 0 && (
+                              <span className="text-[9px] font-bold px-1 py-0.5 rounded-full"
+                                style={{ background: `${meta.color}22`, color: meta.color }}>
+                                {catSlots.length}
+                              </span>
+                            )}
+                          </div>
+                          <button onClick={() => startAdd(week, cat)}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-lg"
+                            style={{ color: meta.color, background: `${meta.color}18` }}>
+                            + Add
+                          </button>
+                        </div>
+
+                        {/* Slots */}
+                        <div className="px-2 py-1.5 space-y-1.5">
+                          {catSlots.map(slot => {
+                            const isEditingThis = editingSlot?.id === slot.id;
+                            return (
+                              <div key={slot.id}>
+                                <div className="bg-slate-50 rounded-xl border border-slate-100 px-2.5 py-2">
+                                  <div className="flex items-start justify-between gap-1 mb-1.5">
+                                    <p className="text-[11px] font-bold text-slate-800 leading-tight truncate">
+                                      {slot.trekName || <span className="italic text-slate-400 font-normal">TREK</span>}
+                                    </p>
+                                    <div className="flex gap-0.5 flex-shrink-0">
+                                      <button onClick={() => startEdit(slot)}
+                                        className="w-5 h-5 rounded-md bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+                                        <Edit size={9} />
+                                      </button>
+                                      <button onClick={() => deleteSlot(slot.id)}
+                                        className="w-5 h-5 rounded-md bg-red-50 border border-red-100 flex items-center justify-center text-red-400 hover:bg-red-100 transition-colors">
+                                        <Trash2 size={9} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-0.5">
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[9px] font-bold text-slate-400 w-4">↑</span>
+                                      <span className="text-[10px] text-slate-600 font-medium">{fmtAvDate(slot.deptDate)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[9px] font-bold text-slate-400 w-4">↓</span>
+                                      <span className="text-[10px] text-slate-600 font-medium">{fmtAvDate(slot.returnDate)}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                {isEditingThis && (
+                                  <SlotFormInline form={slotForm} setForm={setSlotForm}
+                                    onSave={saveSlot} onCancel={() => { setEditingSlot(null); setAddingSlot(null); }}
+                                    saving={saving} isEdit />
+                                )}
+                              </div>
+                            );
+                          })}
+
+                          {isAddingHere && (
+                            <SlotFormInline form={slotForm} setForm={setSlotForm}
+                              onSave={saveSlot} onCancel={() => { setAddingSlot(null); setEditingSlot(null); }}
+                              saving={saving} isEdit={false} />
+                          )}
+
+                          {catSlots.length === 0 && !isAddingHere && (
+                            <p className="text-[10px] text-slate-300 italic py-0.5 px-1">No slots yet</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ══ LEAD RESPONSES ════════════════════════════════════════════════════ */}
+      {subTab === 'responses' && (
+        <div className="space-y-3">
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: 'Total',  val: filteredLeads.length, color: '#0f172a' },
+              { label: 'Male',   val: males,                color: '#2563eb' },
+              { label: 'Female', val: females,              color: BRAND     },
+            ].map(({ label, val, color }) => (
+              <div key={label} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 text-center">
+                <p className="text-2xl font-black tabular-nums" style={{ color }}>{val}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Week filter */}
+          <div className="flex gap-1.5 flex-wrap">
+            {[{ key: 'all', label: 'All weeks' }, ...WEEK_OPTS.map(w => ({ key: `week${w}`, label: `Week ${w}` }))].map(({ key, label }) => (
+              <button key={key} onClick={() => setWeekFilter(key)}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${weekFilter === key ? 'text-white shadow-sm' : 'text-slate-500 bg-white border border-slate-200 hover:bg-slate-50'}`}
+                style={weekFilter === key ? { background: BRAND } : {}}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Lead cards */}
+          {filteredLeads.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm py-16 flex flex-col items-center gap-3">
+              <CalendarCheck size={28} style={{ color: BRAND }} className="opacity-30" />
+              <p className="font-bold text-slate-700">No responses yet</p>
+              <p className="text-sm text-slate-400">Share the link so leads can fill in availability.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredLeads.map((lead, i) => {
+                const gc = GENDER_COLORS[lead.gender?.toLowerCase()] || GENDER_COLORS.other;
+                const allMySlots = (lead.selectedSlotIds || []).map(id => slotMap[id]).filter(Boolean);
+                // When a week filter is active, only show that week's slots in the badges
+                const activeWk = weekFilter === 'all' ? null : parseInt(weekFilter.replace('week', ''), 10);
+                const mySlots = activeWk ? allMySlots.filter(s => s.week === activeWk) : allMySlots;
+                return (
+                  <div key={i} className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-black flex-shrink-0"
+                          style={{ background: `linear-gradient(135deg, ${BRAND}, #f97316)` }}>
+                          {lead.displayName?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 text-sm truncate">{lead.displayName}</p>
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${gc.bg} ${gc.text}`}>
+                            {lead.gender || 'Unknown'}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-bold flex-shrink-0"
+                        style={{ color: BRAND }}>{mySlots.length} slot{mySlots.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    {mySlots.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">No slots selected</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {mySlots.map(slot => {
+                          const meta = AV_CAT_META[slot.category] || AV_CAT_META.weekday;
+                          return (
+                            <span key={slot.id} className="text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                              style={{ background: meta.bg, color: meta.color }}>
+                              {slot.trekName || 'TREK'} · {fmtAvDate(slot.deptDate)}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
+
+export default function BatchPlanning() {
+  const navigate = useNavigate();
+  const { userProfile } = useAuth();
+  const isAdmin        = ['Super Admin','Operations Manager'].includes(userProfile?.role);
+  const canManageDrive = isAdmin || userProfile?.role === 'Trek Lead';
+
+  const [batches,      setBatches]      = useState([]);
+  const [treks,        setTreks]        = useState([]);
+  const [allUsers,     setAllUsers]     = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [refreshing,   setRefreshing]   = useState(false);
+  const [dialogOpen,   setDialogOpen]   = useState(false);
+  const [editingBatch, setEditingBatch] = useState(null);
+  const [deleteConfirm,setDeleteConfirm]= useState(null);
+  const [activeTab,    setActiveTab]    = useState('all');
+  const [searchQuery,  setSearchQuery]  = useState('');
+  const [sortBy,       setSortBy]       = useState('date-asc');
+  const [currentPage,  setCurrentPage]  = useState(1);
+  const [selectedIds,  setSelectedIds]  = useState(new Set());
+  const [showBulk,     setShowBulk]     = useState(false);
+  const [driveFolders, setDriveFolders] = useState({});
+  const [creatingFolder,setCreatingFolder]=useState(null);
+  const [copiedFolder, setCopiedFolder] = useState(null);
+  const [collapsed,    setCollapsed]    = useState({ current: false, upcoming: false, past: false });
+
+  useEffect(() => { loadData(); }, []);
+  useEffect(() => { setCurrentPage(1); }, [searchQuery, sortBy, activeTab]);
+
+  const autoComplete = async (list) => {
+    const t = todayDate();
+    const toFix = list.filter(b => {
+      const e = b.endDate ? new Date(b.endDate) : null;
+      return e && e < t && !['Completed','Cancelled'].includes(b.status);
+    });
+    if (!toFix.length) return list;
+    await Promise.allSettled(toFix.map(b => api.patch(`/batches/${b.id}`, { status: 'Completed' })));
+    return list.map(b => toFix.find(f => f.id === b.id) ? { ...b, status: 'Completed' } : b);
+  };
+
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true); else setRefreshing(true);
+    try {
+      const [br, tr, ur] = await Promise.all([api.get('/batches'), api.get('/treks'), api.get('/users/basic')]);
+      let list = await autoComplete(br.data);
+      setBatches(list);
+      setTreks(tr.data);
+      setAllUsers(ur.data.filter(u => u.status === 'approved'));
+      const fm = {};
+      list.forEach(b => { if (b.driveFolderUrl) fm[b.id] = b.driveFolderUrl; });
+      setDriveFolders(fm);
+    } catch { toast.error('Failed to load batches'); }
+    setLoading(false); setRefreshing(false);
+  };
+
+  const getTrekName = (id) => treks.find(t => t.id === id)?.name || 'Unknown Trek';
+
+  const counts = useMemo(() => {
+    const c = { current:0, upcoming:0, past:0, all: batches.length };
+    batches.forEach(b => { const cat = categorise(b); if (c[cat]!=null) c[cat]++; });
+    return c;
+  }, [batches]);
+
+  const totalCap = batches.reduce((s,b) => s+(b.maxCapacity||0), 0);
+  const totalReg = batches.reduce((s,b) => s+(b.currentRegistrations||0), 0);
+  const fillPct  = totalCap > 0 ? Math.round((totalReg/totalCap)*100) : 0;
+
+  const filtered = useMemo(() => {
+    let list = activeTab === 'all' ? batches : batches.filter(b => categorise(b) === activeTab);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(b =>
+        b.batchCode?.toLowerCase().includes(q) ||
+        getTrekName(b.trekId)?.toLowerCase().includes(q) ||
+        b.assignedLeads?.some(l => l.displayName?.toLowerCase().includes(q)) ||
+        b.transportVendor?.toLowerCase().includes(q) || b.stayVendor?.toLowerCase().includes(q)
+      );
     }
+    return [...list].sort((a, b) => {
+      if (sortBy==='date-asc')  return new Date(a.startDate||0)-new Date(b.startDate||0);
+      if (sortBy==='date-desc') return new Date(b.startDate||0)-new Date(a.startDate||0);
+      if (sortBy==='fill-desc') {
+        const ap = a.maxCapacity>0 ? a.currentRegistrations/a.maxCapacity : 0;
+        const bp = b.maxCapacity>0 ? b.currentRegistrations/b.maxCapacity : 0;
+        return bp-ap;
+      }
+      if (sortBy==='code-asc') return (a.batchCode||'').localeCompare(b.batchCode||'');
+      return 0;
+    });
+  }, [batches, activeTab, searchQuery, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated  = filtered.slice((currentPage-1)*PAGE_SIZE, currentPage*PAGE_SIZE);
+
+  const handleStatusChange = async (id, status) => {
+    try {
+      await api.patch(`/batches/${id}`, { status });
+      setBatches(p => p.map(b => b.id===id ? {...b, status} : b));
+      toast.success(`Status → ${status}`);
+    } catch { toast.error('Could not update status'); }
   };
 
-  const resetForm = () => {
-    setFormData({
-      batchCode: '', trekId: '', startDate: '', endDate: '',
-      maxCapacity: 30, currentRegistrations: 0, status: 'Open',
-      assignedLeads: [], transportVendor: '', stayVendor: '', internalNotes: ''
-    });
-    setEditingBatch(null);
-  };
-
-  const openEditDialog = (batch) => {
-    setEditingBatch(batch);
-    setFormData({
-      batchCode: batch.batchCode || '',
-      trekId: batch.trekId || '',
-      startDate: batch.startDate || '',
-      endDate: batch.endDate || '',
-      maxCapacity: batch.maxCapacity || 30,
-      currentRegistrations: batch.currentRegistrations || 0,
-      status: batch.status || 'Open',
-      assignedLeads: batch.assignedLeads || [],
-      transportVendor: batch.transportVendor || '',
-      stayVendor: batch.stayVendor || '',
-      internalNotes: batch.internalNotes || '',
-    });
-    setDialogOpen(true);
+  const handleBulkStatus = async (status) => {
+    try {
+      await Promise.all([...selectedIds].map(id => api.patch(`/batches/${id}`, { status })));
+      setBatches(p => p.map(b => selectedIds.has(b.id) ? {...b, status} : b));
+      toast.success(`${selectedIds.size} batch(es) → ${status}`);
+      setSelectedIds(new Set()); setShowBulk(false);
+    } catch { toast.error('Bulk update failed'); }
   };
 
   const handleDelete = async () => {
     if (!deleteConfirm) return;
     try {
       await api.delete(`/batches/${deleteConfirm.id}`);
-      toast.success(`Batch ${deleteConfirm.batchCode} deleted`);
+      setBatches(p => p.filter(b => b.id !== deleteConfirm.id));
+      toast.success(`${deleteConfirm.batchCode} deleted`);
       setDeleteConfirm(null);
-      fetchData();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Failed to delete batch');
-    }
+    } catch { toast.error('Delete failed'); }
   };
 
-  const getTrekName = (trekId) => {
-    const trek = treks.find(t => t.id === trekId);
-    return trek ? trek.name : 'Unknown Trek';
+  const handleSave = async (form) => {
+    try {
+      if (editingBatch) { await api.patch(`/batches/${editingBatch.id}`, form); toast.success('Batch updated'); }
+      else              { await api.post('/batches', form); toast.success('Batch created'); }
+      setDialogOpen(false); setEditingBatch(null);
+      loadData(true);
+    } catch (e) { toast.error(e.response?.data?.detail || 'Save failed'); }
   };
 
-  const getLeadName = (leadId) => {
-    const lead = leads.find(l => l.id === leadId);
-    return lead ? lead.name : 'Not Assigned';
+  const createDriveFolder = async (batch) => {
+    const label = `${batch.batchCode} ${getTrekName(batch.trekId)} ${batch.startDate ? new Date(batch.startDate).toLocaleDateString('en-IN',{month:'short',year:'numeric'}) : ''}`.trim();
+    setCreatingFolder(batch.id);
+    try {
+      const res = await api.post('/create-drive-folder', { batch_label: label });
+      const url = res.data.folderUrl;
+      setDriveFolders(p => ({...p, [batch.id]: url}));
+      await api.patch(`/batches/${batch.id}`, { driveFolderUrl: url });
+      toast.success('Drive folder created!');
+    } catch (e) { toast.error('Drive folder failed: '+(e.response?.data?.detail||e.message)); }
+    finally { setCreatingFolder(null); }
   };
 
-  // Reset to page 1 whenever search or filter changes
-  useEffect(() => { setCurrentPage(1); }, [searchQuery, statusFilter]);
+  const toggleSelect = (id) => setSelectedIds(p => { const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n; });
+  const toggleSelectAll = () => setSelectedIds(selectedIds.size===paginated.length ? new Set() : new Set(paginated.map(b=>b.id)));
 
-  const filteredBatches = batches.filter(b => {
-    const q = searchQuery.toLowerCase();
-    const matchesSearch = !q ||
-      b.batchCode?.toLowerCase().includes(q) ||
-      getTrekName(b.trekId)?.toLowerCase().includes(q) ||
-      b.assignedLeads?.some(l => l.displayName?.toLowerCase().includes(q));
-    const matchesStatus = statusFilter === 'All' || b.status === statusFilter;
-    return matchesSearch && matchesStatus;
+  const openEdit = (b) => { setEditingBatch(b); setDialogOpen(true); };
+
+  const batchCardProps = (batch) => ({
+    batch, trekName: getTrekName(batch.trekId), category: categorise(batch),
+    isAdmin, canManageDrive,
+    driveUrl: driveFolders[batch.id],
+    creatingFolder: creatingFolder === batch.id,
+    copiedFolder: copiedFolder === batch.id,
+    onEdit: () => openEdit(batch),
+    onDelete: () => setDeleteConfirm(batch),
+    onManage: () => navigate(`/batches/${batch.id}`),
+    onCreateFolder: () => createDriveFolder(batch),
+    onCopyLink: () => { navigator.clipboard.writeText(driveFolders[batch.id]); setCopiedFolder(batch.id); setTimeout(()=>setCopiedFolder(null),2000); },
+    onStatusChange: handleStatusChange,
+    selected: selectedIds.has(batch.id),
+    onSelect: () => toggleSelect(batch.id),
+    showSelect: showBulk,
   });
 
-  const totalPages = Math.max(1, Math.ceil(filteredBatches.length / PAGE_SIZE));
-  const paginated = filteredBatches.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  const statusConfig = {
-    'Open':         { dot: 'bg-emerald-400', badge: 'bg-emerald-50 text-emerald-700 ring-emerald-200' },
-    'Filling Fast': { dot: 'bg-amber-400',   badge: 'bg-amber-50 text-amber-700 ring-amber-200' },
-    'Full':         { dot: 'bg-red-400',     badge: 'bg-red-50 text-red-700 ring-red-200' },
-    'Closed':       { dot: 'bg-slate-400',   badge: 'bg-slate-50 text-slate-600 ring-slate-200' },
-    'Completed':    { dot: 'bg-blue-400',    badge: 'bg-blue-50 text-blue-700 ring-blue-200' },
-    'Cancelled':    { dot: 'bg-red-300',     badge: 'bg-red-50 text-red-500 ring-red-100' },
-  };
+  // Determine section batches for 'all' tab
+  const sectionBatches = useMemo(() => ({
+    current:  paginated.filter(b => categorise(b)==='current'),
+    upcoming: paginated.filter(b => categorise(b)==='upcoming'),
+    past:     paginated.filter(b => categorise(b)==='past'),
+  }), [paginated]);
 
   return (
-    <div data-testid="batch-planning-page" className="space-y-6">
+    <div className="space-y-4 pb-8" data-testid="batch-planning-page">
 
-      {/* ── Page Header ── */}
-      <div className="relative overflow-hidden rounded-2xl"
-        style={{ background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #3b82f6 100%)' }}>
-        <div className="absolute top-0 right-0 w-56 h-56 opacity-10 pointer-events-none"
-          style={{ background: 'radial-gradient(circle, #fff 0%, transparent 70%)', transform: 'translate(30%,-30%)' }} />
-        <div className="px-6 py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">Batch Planning</h1>
-            <p className="text-blue-200 text-sm mt-0.5">Manage trek batches and lead assignments</p>
-          </div>
-          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
-            {isAdmin && (
-              <DialogTrigger asChild>
-                <Button data-testid="add-batch-button"
-                  className="bg-white text-blue-700 hover:bg-blue-50 font-semibold shadow-sm flex items-center gap-2 flex-shrink-0">
-                  <Plus size={16} /> Add New Batch
-                </Button>
-              </DialogTrigger>
-            )}
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white">
-              <DialogHeader>
-                <DialogTitle className="text-slate-900 font-bold text-lg">{editingBatch ? 'Edit Batch' : 'Add New Batch'}</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4 pt-1">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-slate-700 font-medium text-sm">Batch Code *</Label>
-                    <Input value={formData.batchCode} onChange={(e) => setFormData({...formData, batchCode: e.target.value})} placeholder="e.g., BT501" required className="bg-white mt-1" data-testid="batch-code-input" />
-                  </div>
-                  <div>
-                    <Label className="text-slate-700 font-medium text-sm">Trek *</Label>
-                    <Select value={formData.trekId} onValueChange={(val) => setFormData({...formData, trekId: val})}>
-                      <SelectTrigger className="bg-white mt-1"><SelectValue placeholder="Select trek" /></SelectTrigger>
-                      <SelectContent className="bg-white">
-                        {treks.map(trek => <SelectItem key={trek.id} value={trek.id}>{trek.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-slate-700 font-medium text-sm">Start Date *</Label>
-                    <Input type="date" value={formData.startDate} onChange={(e) => setFormData({...formData, startDate: e.target.value})} required className="bg-white mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-slate-700 font-medium text-sm">End Date *</Label>
-                    <Input type="date" value={formData.endDate} onChange={(e) => setFormData({...formData, endDate: e.target.value})} required className="bg-white mt-1" />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div>
-                    <Label className="text-slate-700 font-medium text-sm">Max Capacity *</Label>
-                    <Input type="number" value={formData.maxCapacity} onChange={(e) => setFormData({...formData, maxCapacity: parseInt(e.target.value)})} required className="bg-white mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-slate-700 font-medium text-sm">Registrations</Label>
-                    <Input type="number" value={formData.currentRegistrations} onChange={(e) => setFormData({...formData, currentRegistrations: parseInt(e.target.value)})} className="bg-white mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-slate-700 font-medium text-sm">Status</Label>
-                    <Select value={formData.status} onValueChange={(val) => setFormData({...formData, status: val})}>
-                      <SelectTrigger className="bg-white mt-1"><SelectValue /></SelectTrigger>
-                      <SelectContent className="bg-white">
-                        {['Open','Filling Fast','Full','Closed','Completed','Cancelled'].map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-slate-700 font-medium text-sm flex items-center gap-1.5"><Users size={14} /> Assign Trek Leads</Label>
-                  <p className="text-xs text-slate-400 mt-0.5 mb-2">Select one or more leads. Click the star to designate the Super Lead.</p>
-                  <LeadSelector selectedLeads={formData.assignedLeads} onChange={(leads) => setFormData({...formData, assignedLeads: leads})} users={allUsers} />
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-slate-700 font-medium text-sm">Transport Vendor</Label>
-                    <Input value={formData.transportVendor} onChange={(e) => setFormData({...formData, transportVendor: e.target.value})} className="bg-white mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-slate-700 font-medium text-sm">Stay Vendor</Label>
-                    <Input value={formData.stayVendor} onChange={(e) => setFormData({...formData, stayVendor: e.target.value})} className="bg-white mt-1" />
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-slate-700 font-medium text-sm">Internal Notes</Label>
-                  <Textarea value={formData.internalNotes} onChange={(e) => setFormData({...formData, internalNotes: e.target.value})} rows={2} className="bg-white mt-1" />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700" data-testid="save-batch-btn">Save Batch</Button>
-                  <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); resetForm(); }}>Cancel</Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+      {/* ── Page header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Batch Planning</h1>
+          <p className="text-sm text-slate-400 mt-0.5">Manage trek batches · lead assignments · logistics</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => loadData(true)} disabled={refreshing}
+            className="h-9 w-9 flex items-center justify-center bg-white border border-slate-200 text-slate-400 hover:text-slate-700 rounded-xl shadow-sm transition-colors">
+            <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+          </button>
+          {isAdmin && (
+            <button onClick={() => { setEditingBatch(null); setDialogOpen(true); }}
+              className="h-9 px-4 bg-[#f1563f] hover:bg-[#d94530] text-white rounded-xl font-semibold text-sm flex items-center gap-2 transition-colors shadow-md shadow-orange-200">
+              <Plus size={15} /> New Batch
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Search & Filter toolbar ── */}
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm px-3 py-2.5">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-          {/* Search */}
-          <div className="relative flex-1 min-w-0">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" size={14} />
-            <Input
-              placeholder="Search by batch code, trek or lead name…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 h-8 bg-slate-50 border-transparent focus:border-slate-200 focus:bg-white rounded-lg text-sm transition-all"
-              data-testid="batch-search"
-            />
-          </div>
+      {/* ── Stats row ── */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { key:'all',      label:'All Batches',   val:counts.all,      Icon:BarChart3,    bg:'bg-slate-900',   text:'text-white',    sub:'text-slate-300' },
+          { key:'current',  label:'Running Now',   val:counts.current,  Icon:Zap,          bg:'bg-emerald-500', text:'text-white',    sub:'text-emerald-100' },
+          { key:'upcoming', label:'Upcoming',      val:counts.upcoming, Icon:ArrowUpRight, bg:'bg-blue-500',    text:'text-white',    sub:'text-blue-100' },
+          { key:'past',     label:'Past',          val:counts.past,     Icon:CheckCircle2, bg:'bg-slate-100',   text:'text-slate-700',sub:'text-slate-400' },
+          { key:null,       label:'Overall Fill',  val:`${fillPct}%`,   Icon:TrendingUp,   bg:'bg-orange-500',  text:'text-white',    sub:'text-orange-100', extra:`${totalReg}/${totalCap} seats` },
+        ].map(({ key, label, val, Icon, bg, text, sub, extra }) => (
+          <button key={key||'fill'} onClick={() => key && setActiveTab(key)}
+            className={`rounded-2xl p-4 text-left transition-all shadow-sm ${bg} ${key && activeTab===key ? 'ring-2 ring-offset-2 ring-slate-400 scale-[1.02]' : ''} ${key ? 'hover:scale-[1.01] cursor-pointer' : 'cursor-default'}`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className={`w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center`}>
+                <Icon size={15} className={text} />
+              </div>
+              {key && <ChevronRight size={13} className={`${sub} opacity-60`} />}
+            </div>
+            <div className={`text-3xl font-extrabold ${text} tabular-nums leading-none mb-1`}>{val}</div>
+            <div className={`text-xs font-semibold ${sub}`}>{label}</div>
+            {extra && <div className={`text-[10px] ${sub} opacity-80 mt-0.5`}>{extra}</div>}
+          </button>
+        ))}
+      </div>
 
-          <div className="w-px h-5 bg-slate-100 hidden sm:block flex-shrink-0" />
-
-          {/* Status filter chips */}
-          <div className="flex items-center gap-1.5 flex-wrap flex-shrink-0">
-            <Filter size={12} className="text-slate-300 flex-shrink-0" />
-            {['All', 'Open', 'Filling Fast', 'Full', 'Completed', 'Closed', 'Cancelled'].map(s => (
-              <button key={s} onClick={() => setStatusFilter(s)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap ${
-                  statusFilter === s
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                }`}>
-                {s}
-              </button>
-            ))}
+      {/* ── Toolbar ── */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3 space-y-3">
+        {/* Search + sort + select row */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" />
+            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search batch code, trek, lead, vendor…"
+              className="w-full pl-9 pr-3 h-9 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-200 focus:bg-white transition-all"
+              data-testid="batch-search" />
           </div>
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="h-9 w-48 bg-slate-50 border-slate-200 text-slate-600 text-sm rounded-xl">
+              <SlidersHorizontal size={12} className="mr-1.5 text-slate-400" /><SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-white">
+              <SelectItem value="date-asc">Date ↑ (soonest first)</SelectItem>
+              <SelectItem value="date-desc">Date ↓ (latest first)</SelectItem>
+              <SelectItem value="fill-desc">Fill % (highest first)</SelectItem>
+              <SelectItem value="code-asc">Code A → Z</SelectItem>
+            </SelectContent>
+          </Select>
+          {isAdmin && (
+            <button onClick={() => { setShowBulk(!showBulk); setSelectedIds(new Set()); }}
+              className={`h-9 px-4 rounded-xl border text-sm font-semibold transition-all flex-shrink-0 ${showBulk ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>
+              Select
+            </button>
+          )}
+        </div>
+
+        {/* Tab bar */}
+        <div className="flex gap-1.5 border-t border-slate-100 pt-3 flex-wrap">
+          {[
+            { key:'all',      label:'All',          Icon:BarChart3,    cnt:counts.all },
+            { key:'current',  label:'Current',      Icon:Zap,          cnt:counts.current },
+            { key:'upcoming', label:'Upcoming',     Icon:ArrowUpRight, cnt:counts.upcoming },
+            { key:'past',     label:'Past',         Icon:CheckCircle2, cnt:counts.past },
+          ].map(({ key, label, Icon, cnt }) => (
+            <button key={key} onClick={() => setActiveTab(key)}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                activeTab===key
+                  ? key==='current'  ? 'bg-emerald-500 text-white shadow-sm'
+                  : key==='upcoming' ? 'bg-blue-500 text-white shadow-sm'
+                  : key==='past'     ? 'bg-slate-500 text-white shadow-sm'
+                  :                    'bg-slate-900 text-white shadow-sm'
+                  : 'text-slate-500 hover:bg-slate-100'
+              }`}>
+              <Icon size={12} />
+              {label}
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${activeTab===key ? 'bg-white/25 text-white' : 'bg-slate-100 text-slate-500'}`}>{cnt}</span>
+            </button>
+          ))}
+          {isAdmin && (
+            <button onClick={() => setActiveTab('availability')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                activeTab==='availability' ? 'text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'
+              }`}
+              style={activeTab==='availability' ? { background: '#f1563f' } : {}}>
+              <CalendarCheck size={12} />
+              Availability
+            </button>
+          )}
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="ml-auto text-xs text-slate-400 hover:text-slate-700 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-50">
+              <X size={11} /> Clear search
+            </button>
+          )}
         </div>
       </div>
 
-      {/* ── Batch List ── */}
-      {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+      {/* ── Bulk action bar ── */}
+      {showBulk && selectedIds.size > 0 && (
+        <div className="bg-slate-900 rounded-2xl px-5 py-3 flex items-center gap-4 flex-wrap shadow-xl">
+          <span className="text-white font-bold text-sm">{selectedIds.size} selected</span>
+          <div className="w-px h-4 bg-white/20" />
+          <span className="text-xs text-slate-400 font-medium">Set status:</span>
+          {['Open','Closed','Completed','Cancelled'].map(s => (
+            <button key={s} onClick={() => handleBulkStatus(s)}
+              className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-colors">{s}</button>
+          ))}
+          <button onClick={() => { setShowBulk(false); setSelectedIds(new Set()); }} className="ml-auto p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white"><X size={14} /></button>
         </div>
-      ) : filteredBatches.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm py-20 text-center">
-          <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mx-auto mb-4">
+      )}
+
+      {/* ── Availability tab ── */}
+      {activeTab === 'availability' && (
+        <AvailabilityTab isAdmin={isAdmin} />
+      )}
+
+      {/* ── List ── */}
+      {activeTab !== 'availability' && (loading ? (
+        <div className="flex flex-col items-center justify-center py-28 gap-4">
+          <div className="w-12 h-12 border-[3px] border-slate-200 border-t-orange-500 rounded-full animate-spin" />
+          <p className="text-sm text-slate-400 font-medium">Loading batches…</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm py-24 flex flex-col items-center gap-3">
+          <div className="w-16 h-16 rounded-2xl bg-slate-50 flex items-center justify-center">
             <Calendar size={28} className="text-slate-300" />
           </div>
-          {searchQuery || statusFilter !== 'All' ? (
-            <>
-              <p className="text-slate-400 font-medium">No batches match your search</p>
-              <button onClick={() => { setSearchQuery(''); setStatusFilter('All'); }}
-                className="text-xs text-blue-500 hover:text-blue-700 mt-2 underline underline-offset-2">
-                Clear filters
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="text-slate-400 font-medium">No batches created yet</p>
-              {isAdmin && <p className="text-xs text-slate-300 mt-1">Click "Add New Batch" above to get started</p>}
-            </>
-          )}
+          <p className="text-slate-500 font-semibold">No batches found</p>
+          {searchQuery && <button onClick={() => setSearchQuery('')} className="text-xs text-orange-500 hover:underline">Clear search</button>}
         </div>
       ) : (
         <>
-          {/* Results meta */}
+          {/* Count + select-all */}
           <div className="flex items-center justify-between px-1">
             <p className="text-xs text-slate-400">
-              Showing <span className="font-semibold text-slate-600">{(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredBatches.length)}</span> of <span className="font-semibold text-slate-600">{filteredBatches.length}</span> batch{filteredBatches.length !== 1 ? 'es' : ''}
-              {statusFilter !== 'All' && <span className="ml-1 text-blue-500">· {statusFilter}</span>}
+              Showing <span className="font-bold text-slate-700">{(currentPage-1)*PAGE_SIZE+1}–{Math.min(currentPage*PAGE_SIZE, filtered.length)}</span> of <span className="font-bold text-slate-700">{filtered.length}</span> batch{filtered.length!==1?'es':''}
             </p>
-            {(searchQuery || statusFilter !== 'All') && (
-              <button onClick={() => { setSearchQuery(''); setStatusFilter('All'); }}
-                className="text-[11px] text-slate-400 hover:text-slate-600 flex items-center gap-1">
-                <X size={11} /> Clear
+            {showBulk && (
+              <button onClick={toggleSelectAll} className="text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1.5 font-medium">
+                <Checkbox checked={selectedIds.size===paginated.length && paginated.length>0} />
+                {selectedIds.size===paginated.length ? 'Deselect page' : 'Select page'}
               </button>
             )}
           </div>
 
-          {/* Cards */}
-          <div className="space-y-3">
-            {paginated.map((batch) => {
-              const pct = batch.maxCapacity > 0 ? Math.min(100, Math.round((batch.currentRegistrations / batch.maxCapacity) * 100)) : 0;
-              const sc = statusConfig[batch.status] || statusConfig['Closed'];
-              return (
-                <div key={batch.id} data-testid={`batch-card-${batch.batchCode}`}
-                  className="bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all group">
-                  <div className="p-4 md:p-5">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-
-                      {/* Left — batch info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2.5 mb-1">
-                          <h3 className="text-lg font-bold text-slate-900 tracking-tight">{batch.batchCode}</h3>
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${sc.badge}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
-                            {batch.status}
-                          </span>
-                        </div>
-
-                        <p className="text-sm text-slate-500 flex items-center gap-1.5 mb-3">
-                          <MapPin size={13} className="text-slate-300 flex-shrink-0" />
-                          {getTrekName(batch.trekId)}
-                        </p>
-
-                        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-                          <div className="flex items-center gap-1.5 text-slate-500">
-                            <Calendar size={13} className="text-slate-300 flex-shrink-0" />
-                            <span>
-                              {new Date(batch.startDate).toLocaleDateString('en-IN', {day:'numeric',month:'short'})}
-                              {' – '}
-                              {new Date(batch.endDate).toLocaleDateString('en-IN', {day:'numeric',month:'short',year:'numeric'})}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <Users size={13} className="text-slate-300 flex-shrink-0" />
-                            <span className="text-slate-500">{batch.currentRegistrations}/{batch.maxCapacity}</span>
-                            <div className="w-20 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all"
-                                style={{ width: `${pct}%`, background: pct >= 90 ? '#f87171' : pct >= 70 ? '#fb923c' : '#34d399' }} />
-                            </div>
-                            <span className="text-xs text-slate-400">{pct}%</span>
-                          </div>
-
-                          {batch.assignedLeads && batch.assignedLeads.length > 0 ? (
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {batch.assignedLeads.map(l => (
-                                <span key={l.userId} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ring-1 ${
-                                  l.isSuperLead ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-blue-50 text-blue-600 ring-blue-100'
-                                }`}>
-                                  {l.isSuperLead && <Star size={9} className="fill-amber-500 text-amber-500" />}
-                                  {l.displayName}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-xs text-slate-300 italic">No leads assigned</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Right — actions */}
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {isAdmin && (
-                          <>
-                            <Button variant="ghost" size="sm" data-testid={`edit-batch-${batch.batchCode}`}
-                              onClick={() => openEditDialog(batch)}
-                              className="h-8 px-3 text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-lg gap-1.5">
-                              <Edit size={13} /> Edit
-                            </Button>
-                            <Button variant="ghost" size="sm" data-testid={`delete-batch-${batch.batchCode}`}
-                              onClick={() => setDeleteConfirm(batch)}
-                              className="h-8 px-3 text-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg gap-1.5">
-                              <Trash2 size={13} /> Delete
-                            </Button>
-                          </>
-                        )}
-                        <Button size="sm" data-testid={`manage-batch-${batch.batchCode}`}
-                          onClick={() => navigate(`/batches/${batch.id}`)}
-                          className="h-8 px-4 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg gap-1.5">
-                          <Users size={13} /> Manage
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {/* Sections (all tab) or flat list (filtered tab) */}
+          {activeTab === 'all' ? (
+            <div className="space-y-5">
+              {(['current','upcoming','past']).map(cat => {
+                const sb = sectionBatches[cat];
+                if (!sb.length) return null;
+                return (
+                  <Section key={cat} cat={cat} batches={sb} collapsed={collapsed[cat]}
+                    onToggle={() => setCollapsed(p => ({...p,[cat]:!p[cat]}))}>
+                    {sb.map(b => <BatchCard key={b.id} {...batchCardProps(b)} />)}
+                  </Section>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {paginated.map(b => <BatchCard key={b.id} {...batchCardProps(b)} />)}
+            </div>
+          )}
 
           {/* ── Pagination ── */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-1">
-              <p className="text-xs text-slate-400">Page {currentPage} of {totalPages}</p>
+            <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-3">
+              <p className="text-xs text-slate-400 font-medium">Page <span className="text-slate-700 font-bold">{currentPage}</span> of <span className="text-slate-700 font-bold">{totalPages}</span></p>
               <div className="flex items-center gap-1">
-                {/* Prev */}
-                <button
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                <button onClick={() => setCurrentPage(p => Math.max(1,p-1))} disabled={currentPage===1}
+                  className="w-8 h-8 flex items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                   <ChevronLeft size={14} />
                 </button>
-
-                {/* Page numbers */}
-                {Array.from({ length: totalPages }, (_, i) => i + 1)
-                  .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
-                  .reduce((acc, p, i, arr) => {
-                    if (i > 0 && arr[i - 1] !== p - 1) acc.push('...');
-                    acc.push(p);
-                    return acc;
-                  }, [])
-                  .map((item, i) =>
-                    item === '...' ? (
-                      <span key={`ellipsis-${i}`} className="w-8 h-8 flex items-center justify-center text-xs text-slate-300">…</span>
-                    ) : (
-                      <button key={item}
-                        onClick={() => setCurrentPage(item)}
-                        className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-semibold transition-all ${
-                          currentPage === item
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}>
+                {Array.from({length: totalPages}, (_,i) => i+1)
+                  .filter(p => p===1 || p===totalPages || Math.abs(p-currentPage)<=1)
+                  .reduce((acc,p,i,arr) => { if(i>0&&arr[i-1]!==p-1) acc.push('…'); acc.push(p); return acc; }, [])
+                  .map((item,i) => item==='…'
+                    ? <span key={`e${i}`} className="w-8 h-8 flex items-center justify-center text-xs text-slate-300">…</span>
+                    : <button key={item} onClick={() => setCurrentPage(item)}
+                        className={`w-8 h-8 flex items-center justify-center rounded-xl text-xs font-bold transition-all ${currentPage===item ? 'bg-slate-900 text-white shadow-sm' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                         {item}
                       </button>
-                    )
                   )
                 }
-
-                {/* Next */}
-                <button
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                <button onClick={() => setCurrentPage(p => Math.min(totalPages,p+1))} disabled={currentPage===totalPages}
+                  className="w-8 h-8 flex items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-all">
                   <ChevronRight size={14} />
                 </button>
               </div>
             </div>
           )}
         </>
-      )}
-      {/* ── Delete Confirmation Dialog ── */}
+      ))}
+
+      {/* ── Form dialog ── */}
+      <BatchFormDialog
+        open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if(!o) setEditingBatch(null); }}
+        editingBatch={editingBatch} treks={treks} allUsers={allUsers} onSave={handleSave}
+      />
+
+      {/* ── Delete confirm ── */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.45)' }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{background:'rgba(0,0,0,0.55)'}}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
             <div className="flex items-center gap-3 mb-4">
-              <div className="w-11 h-11 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+              <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center flex-shrink-0">
                 <AlertTriangle size={22} className="text-red-600" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900">Delete Batch</h3>
-                <p className="text-xs text-slate-500 mt-0.5">This action cannot be undone</p>
+                <h3 className="text-base font-extrabold text-slate-900">Delete {deleteConfirm.batchCode}?</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{getTrekName(deleteConfirm.trekId)}</p>
               </div>
             </div>
-            <p className="text-sm text-slate-600 mb-2">
-              You are about to permanently delete batch <span className="font-semibold text-slate-900">{deleteConfirm.batchCode}</span> ({getTrekName(deleteConfirm.trekId)}).
-            </p>
-            <div className="bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-5">
-              <p className="text-xs text-red-700 font-medium flex items-center gap-1.5">
-                <AlertTriangle size={12} />
-                Admin Warning: All participants, expenses and documents linked to this batch will be inaccessible.
-              </p>
+            <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-5">
+              <p className="text-xs text-red-700 font-medium">All participants, expenses and documents linked to this batch will be inaccessible. This cannot be undone.</p>
             </div>
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setDeleteConfirm(null)}>Cancel</Button>
-              <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white" onClick={handleDelete}>
-                <Trash2 size={14} className="mr-1.5" /> Delete Batch
+              <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white font-semibold" onClick={handleDelete}>
+                <Trash2 size={13} className="mr-1.5" /> Delete
               </Button>
             </div>
           </div>
@@ -604,6 +1352,4 @@ const BatchPlanning = () => {
       )}
     </div>
   );
-};
-
-export default BatchPlanning;
+}

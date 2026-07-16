@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
-  const { currentUser, userProfile, loading } = useAuth();
+  const { currentUser, userProfile, profileError, loading, logout } = useAuth();
 
   if (loading) {
     return (
@@ -27,15 +27,29 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
             </svg>
           </div>
           <h2 className="text-2xl font-bold heading-font mb-2">Cannot Reach Server</h2>
-          <p className="text-slate-600 mb-6">
+          <p className="text-slate-600 mb-4">
             Unable to load your profile. Please check that the backend server is running.
           </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="text-blue-600 hover:text-blue-700 font-medium"
-          >
-            Retry
-          </button>
+          {profileError && (
+            <p className="text-xs text-red-500 bg-red-50 rounded p-2 mb-4 font-mono break-all">
+              {profileError}
+            </p>
+          )}
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={() => window.location.reload()}
+              className="text-blue-600 hover:text-blue-700 font-medium"
+            >
+              Retry
+            </button>
+            <span className="text-slate-300">|</span>
+            <button
+              onClick={async () => { await logout(); window.location.href = '/login'; }}
+              className="text-slate-500 hover:text-slate-700 font-medium"
+            >
+              Logout & Re-login
+            </button>
+          </div>
         </div>
       </div>
     );

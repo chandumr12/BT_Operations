@@ -26,17 +26,19 @@ export const AuthProvider = ({ children }) => {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(null);
+  const [profileError, setProfileError] = useState(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
+      setProfileError(null);
 
       // Safety net: always resolve loading within 20s no matter what
       const safetyTimer = setTimeout(() => setLoading(false), 20000);
 
       if (user) {
         try {
-          const idToken = await user.getIdToken();
+          const idToken = await user.getIdToken(/* forceRefresh */ true);
           setToken(idToken);
 
           // Fetch user profile from backend
@@ -50,6 +52,10 @@ export const AuthProvider = ({ children }) => {
           setUserProfile(response.data);
         } catch (error) {
           console.error('Error fetching user profile:', error);
+          const msg = error?.response?.data?.detail
+            || error?.message
+            || 'Unknown error';
+          setProfileError(msg);
         }
       } else {
         setToken(null);
@@ -107,6 +113,7 @@ export const AuthProvider = ({ children }) => {
     currentUser,
     userProfile,
     token,
+    profileError,
     signup,
     login,
     logout,

@@ -23,7 +23,18 @@ import WorkloadDashboard from '@/pages/WorkloadDashboard';
 import CalendarView     from '@/pages/CalendarView';
 import Rewards         from '@/pages/Rewards';
 import MyVouchers      from '@/pages/MyVouchers';
-import MeetTheTeam     from '@/pages/MeetTheTeam';
+import MeetTheTeam      from '@/pages/MeetTheTeam';
+import LeadPerformance  from '@/pages/LeadPerformance';
+import HotelStays       from '@/pages/HotelStays';
+import HotelStayView    from '@/pages/HotelStayView';
+import PackingLists     from '@/pages/PackingLists';
+import PackingListEdit  from '@/pages/PackingListEdit';
+import PackingListView  from '@/pages/PackingListView';
+import VehicleAllocation from '@/pages/VehicleAllocation';
+import VehicleView      from '@/pages/VehicleView';
+import LeadView         from '@/pages/LeadView';
+import TrekWatcher      from '@/pages/TrekWatcher';
+import LeadAvailability from '@/pages/LeadAvailability';
 
 // ── Finance pages (from bt-finance, now integrated) ─────────────────────────
 import FinanceDashboard       from '@/pages/finance/FinanceDashboard';
@@ -155,6 +166,57 @@ function App() {
               <Layout><MeetTheTeam /></Layout>
             </ProtectedRoute>
           } />
+
+          <Route path="/lead-performance" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><LeadPerformance /></Layout>
+            </ProtectedRoute>
+          } />
+
+          <Route path="/hotel-stays" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><HotelStays /></Layout>
+            </ProtectedRoute>
+          } />
+
+          {/* ── Packing Lists ───────────────────────────────────────── */}
+          <Route path="/packing-lists" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><PackingLists /></Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/packing-lists/:id/edit" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><PackingListEdit /></Layout>
+            </ProtectedRoute>
+          } />
+
+          {/* Public packing list view — no auth */}
+          <Route path="/packing/:slug" element={<PackingListView />} />
+
+          {/* ── Vehicle Allocation ─────────────────────────────────── */}
+          <Route path="/vehicle-allocation" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><VehicleAllocation /></Layout>
+            </ProtectedRoute>
+          } />
+
+          <Route path="/trek-watcher" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><TrekWatcher /></Layout>
+            </ProtectedRoute>
+          } />
+
+          <Route path="/my-availability" element={
+            <ProtectedRoute allowedRoles={['Trek Lead', 'Coordinator', 'Operations Manager', 'Super Admin']}>
+              <Layout><LeadAvailability /></Layout>
+            </ProtectedRoute>
+          } />
+
+          {/* Public vendor views — no auth */}
+          <Route path="/stay-view"    element={<HotelStayView />} />
+          <Route path="/vehicle-view" element={<VehicleView />} />
+          <Route path="/lead-view"    element={<LeadView />} />
 
           {/* ── Finance pages ───────────────────────────────────────────── */}
           <Route path="/finance" element={

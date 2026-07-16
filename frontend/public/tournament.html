@@ -1,0 +1,2930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BT Badminton Tournament — Organizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --surface: #14171c;
+    --surface-2: #1c2027;
+    --border: #2a2f38;
+    --text: #f4f5f7;
+    --muted: #8b919e;
+    --accent: #d4ff3a;
+    --alpha: #ff5e5e;
+    --beta: #4dd0e1;
+    --charlie: #ffb74d;
+    --delta: #ba68c8;
+    --win: #4ade80;
+    --loss: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(ellipse at top left, rgba(212,255,58,0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom right, rgba(77,208,225,0.05) 0%, transparent 50%);
+  }
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 24px 32px;
+    background: rgba(11,13,16,0.85);
+    backdrop-filter: blur(10px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 36px;
+    letter-spacing: 2px;
+    line-height: 1;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-top: 4px;
+  }
+  .reset-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .reset-btn:hover { border-color: var(--alpha); color: var(--alpha); }
+
+  nav.tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    background: var(--surface);
+    padding: 0 32px;
+    position: sticky;
+    top: 89px;
+    z-index: 99;
+  }
+  .tab {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 16px 24px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 16px;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  main {
+    padding: 32px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fade 0.3s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+  }
+  .section-sub {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+
+  /* TEAM CARDS */
+  .teams-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 20px;
+  }
+  .team-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 4px solid var(--team-color);
+    padding: 20px;
+  }
+  .team-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 16px;
+  }
+  .team-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 26px;
+    letter-spacing: 2px;
+    color: var(--team-color);
+  }
+  .team-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .player-list { list-style: none; }
+  .player-row {
+    display: grid;
+    grid-template-columns: 24px 1fr auto auto;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    align-items: center;
+  }
+  .player-row:last-child { border-bottom: none; }
+  .player-num {
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+  .player-name { font-weight: 500; }
+  .player-name.placeholder { color: var(--muted); font-style: italic; }
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .badge-A { background: rgba(212,255,58,0.15); color: var(--accent); }
+  .badge-I { background: rgba(77,208,225,0.15); color: var(--beta); }
+  .badge-B { background: rgba(186,104,200,0.15); color: var(--delta); }
+  .badge-M { background: var(--surface-2); color: var(--muted); }
+  .badge-F { background: rgba(255,94,94,0.15); color: var(--alpha); }
+
+  /* PAIR BUILDER */
+  .pair-builder { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; }
+  .pair-team-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 4px solid var(--team-color);
+    padding: 20px;
+  }
+  .format-block { margin-top: 16px; }
+  .format-label {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 14px;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .format-label .status-ok { color: var(--win); }
+  .format-label .status-warn { color: var(--charlie); }
+  .pair-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .pair-select {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    width: 100%;
+  }
+  .pair-select:focus { outline: 1px solid var(--accent); }
+  .pair-select.dup { border-color: var(--alpha); background: rgba(255,94,94,0.08); }
+
+  /* POOLS */
+  .pools-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 900px) { .pools-grid { grid-template-columns: 1fr; } }
+  .pool-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px;
+  }
+  .pool-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .pool-tag {
+    background: var(--accent);
+    color: #000;
+    font-size: 11px;
+    padding: 2px 8px;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 1px;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left;
+    padding: 10px 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+  }
+  td { padding: 10px 8px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  .standings-team-name { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+  .team-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .num-cell { font-family: 'JetBrains Mono', monospace; text-align: center; }
+  .qualified { background: rgba(74,222,128,0.05); }
+  .qualified td:first-child::before { content: "▶ "; color: var(--win); }
+
+  .matches-list { margin-top: 20px; }
+  .match-row {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 12px;
+    margin-bottom: 8px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto;
+    gap: 12px;
+    align-items: center;
+  }
+  .match-row.completed { border-left: 3px solid var(--win); }
+  .match-team { font-size: 13px; }
+  .match-team.winner { color: var(--win); font-weight: 600; }
+  .match-team.loser { color: var(--muted); }
+  .score-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    width: 60px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .score-input:focus { outline: 1px solid var(--accent); }
+  .score-divider { color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+  .match-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: right;
+  }
+  .match-pair-line { display: flex; align-items: center; gap: 6px; }
+
+  /* KNOCKOUT BRACKET */
+  .bracket-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .bracket-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 2px;
+    margin-bottom: 20px;
+    color: var(--accent);
+  }
+  .bracket-rounds {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+    align-items: center;
+  }
+  @media (max-width: 800px) { .bracket-rounds { grid-template-columns: 1fr; } }
+  .bracket-col-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+  .bracket-match {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: 12px;
+    margin-bottom: 16px;
+  }
+  .bracket-match.final { border: 1px solid var(--accent); background: rgba(212,255,58,0.04); }
+  .bracket-team {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+  }
+  .bracket-team.winner { color: var(--win); font-weight: 600; }
+  .bracket-team.placeholder { color: var(--muted); font-style: italic; }
+  .bracket-score {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+  }
+  .bracket-vs {
+    text-align: center;
+    color: var(--muted);
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    margin: 4px 0;
+  }
+  .final-score-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    width: 50px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .final-set-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+  .final-set-row .set-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    width: 40px;
+  }
+
+  .alert {
+    padding: 12px 16px;
+    background: rgba(255,183,77,0.08);
+    border: 1px solid var(--charlie);
+    color: var(--charlie);
+    font-size: 13px;
+    margin-bottom: 16px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .info {
+    padding: 12px 16px;
+    background: rgba(77,208,225,0.05);
+    border-left: 3px solid var(--beta);
+    font-size: 13px;
+    margin-bottom: 16px;
+    color: var(--muted);
+  }
+
+  /* LEADERBOARD */
+  .leaderboard {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 24px;
+    margin-bottom: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+  .leaderboard::before {
+    content: "";
+    position: absolute;
+    top: -40px; right: -40px;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(212,255,58,0.08), transparent 70%);
+    pointer-events: none;
+  }
+  .leaderboard-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .leaderboard-title .trophy { font-size: 20px; }
+  .leaderboard-sub {
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 18px;
+  }
+  .leaderboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .lb-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--team-color);
+    padding: 16px;
+    position: relative;
+  }
+  .lb-card.rank-1 {
+    background: linear-gradient(135deg, rgba(212,255,58,0.08), rgba(212,255,58,0.02));
+    border-color: var(--accent);
+  }
+  .lb-rank {
+    position: absolute;
+    top: 8px; right: 12px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    color: var(--muted);
+    line-height: 1;
+  }
+  .lb-card.rank-1 .lb-rank { color: var(--accent); }
+  .lb-team {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 1.5px;
+    color: var(--team-color);
+    margin-bottom: 4px;
+  }
+  .lb-points {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.1;
+  }
+  .lb-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-top: 2px;
+  }
+  .lb-breakdown {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .lb-breakdown span strong { color: var(--text); font-weight: 700; }
+
+  /* SHARE BUTTONS */
+  .team-card .share-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 8px 12px;
+    width: 100%;
+    margin-top: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .team-card .share-btn:hover {
+    border-color: var(--team-color);
+    color: var(--team-color);
+  }
+  .team-card .share-btn.copied {
+    border-color: var(--win);
+    color: var(--win);
+  }
+
+  /* MODAL */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 4px solid var(--team-color, var(--accent));
+    width: 100%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 28px;
+  }
+  .modal h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+  .modal p.muted {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+  .modal-link-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 14px;
+    margin-bottom: 16px;
+    word-break: break-all;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--beta);
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .modal-btn {
+    background: var(--accent);
+    border: none;
+    color: #000;
+    padding: 12px 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    flex: 1;
+    font-weight: 700;
+  }
+  .modal-btn.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .modal-btn.copied { background: var(--win); }
+
+  /* READ-ONLY VIEW */
+  body.readonly nav.tabs, body.readonly #resetBtn { display: none; }
+  body.readonly .panel { display: block !important; }
+  .readonly-banner {
+    background: linear-gradient(90deg, var(--team-color), transparent);
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+  .readonly-team-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 48px;
+    letter-spacing: 3px;
+    color: #fff;
+    line-height: 1;
+  }
+  .readonly-tag {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 4px 10px;
+    background: rgba(0,0,0,0.4);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .ro-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .ro-section h3 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 20px;
+    letter-spacing: 2px;
+    margin-bottom: 14px;
+    color: var(--accent);
+  }
+  .ro-pair {
+    background: var(--surface-2);
+    padding: 10px 14px;
+    margin-bottom: 6px;
+    border-left: 3px solid var(--team-color);
+    font-size: 14px;
+  }
+  .ro-pair-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 2px;
+  }
+  .ro-fixture-match {
+    background: var(--surface-2);
+    padding: 10px 14px;
+    margin-bottom: 6px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 12px;
+    align-items: center;
+    font-size: 13px;
+  }
+  .ro-fixture-match .vs {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--muted);
+    font-size: 10px;
+  }
+  .ro-fixture-match.own { border-left: 3px solid var(--team-color); }
+  .ro-fixture-match .own-pair { color: var(--team-color); font-weight: 600; }
+
+  /* SUBMISSIONS */
+  .sub-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--team-color);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .sub-card.empty { opacity: 0.55; border-left-style: dashed; }
+  .sub-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .sub-team {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 24px;
+    letter-spacing: 2px;
+    color: var(--team-color);
+  }
+  .sub-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  .sub-status {
+    display: inline-block;
+    padding: 3px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+  .sub-status.submitted { background: rgba(74,222,128,0.15); color: var(--win); }
+  .sub-status.draft { background: rgba(255,183,77,0.15); color: var(--charlie); }
+  .sub-status.none { background: var(--surface-2); color: var(--muted); }
+  .sub-pairs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .sub-format {
+    background: var(--surface-2);
+    padding: 12px;
+    border: 1px solid var(--border);
+  }
+  .sub-format-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+  .sub-pair-line {
+    font-size: 13px;
+    padding: 4px 0;
+    color: var(--text);
+  }
+  .sub-pair-line.tbd { color: var(--muted); font-style: italic; }
+  .sub-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .sub-btn {
+    background: var(--accent);
+    border: none;
+    color: #000;
+    padding: 10px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    font-weight: 700;
+  }
+  .sub-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .sub-btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .sub-btn.danger:hover { border-color: var(--alpha); color: var(--alpha); }
+  .sub-diff-line {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 4px 0;
+  }
+  .sub-diff-line.changed { color: var(--charlie); }
+  .sub-diff-line.same { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div>
+      <h1>BT BADMINTON <span>•</span> ORGANIZER</h1>
+      <div class="subtitle">4 Teams · 3 Formats · Live Tournament Console</div>
+    </div>
+    <button class="reset-btn" id="resetBtn">↻ Reset all data</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab active" data-panel="rosters">Rosters</button>
+  <button class="tab" data-panel="submissions">Submissions <span id="submissionCountBadge" style="display:none;background:var(--accent);color:#000;padding:1px 6px;border-radius:8px;margin-left:4px;font-size:10px;">0</span></button>
+  <button class="tab" data-panel="pairs">Pair Builder</button>
+  <button class="tab" data-panel="mens">Men's Doubles</button>
+  <button class="tab" data-panel="mixed">Mixed Doubles</button>
+  <button class="tab" data-panel="womens">Women's Doubles</button>
+  <button class="tab" data-panel="knockouts">Knockouts</button>
+</nav>
+
+<main>
+  <section class="panel active" id="panel-rosters">
+    <div class="section-title">Team Rosters</div>
+    <div class="section-sub">6 male + 4 female per team. Click any name to edit. Share link sends each team their fixtures.</div>
+    <div id="leaderboardWrap"></div>
+    <div class="teams-grid" id="rostersGrid"></div>
+  </section>
+
+  <section class="panel" id="panel-submissions">
+    <div class="section-title">Captain Submissions</div>
+    <div class="section-sub">Live feed of pairs submitted by team captains. Click "Use these pairs" to copy a submission into the Pair Builder.</div>
+    <div id="firebaseStatusBox" class="info" style="display:none;"></div>
+    <div id="submissionsList"></div>
+  </section>
+
+  <section class="panel" id="panel-pairs">
+    <div class="section-title">Pair Builder</div>
+    <div class="section-sub">Each team fields 2 Men's Doubles, 2 Mixed Doubles, 1 Women's Doubles. No player can play more than one format.</div>
+    <div class="info">Pick players from the dropdowns. Duplicates within the same team are highlighted in red. Pairs auto-save.</div>
+    <div class="pair-builder" id="pairBuilder"></div>
+  </section>
+
+  <section class="panel" id="panel-mens">
+    <div class="section-title">Men's Doubles</div>
+    <div class="section-sub">2 pools, round robin, each pair plays 3 matches (15 points). Top 2 from each pool advance to Knockouts.</div>
+    <div id="mensPools"></div>
+  </section>
+
+  <section class="panel" id="panel-mixed">
+    <div class="section-title">Mixed Doubles</div>
+    <div class="section-sub">2 pools, round robin, each pair plays 3 matches (15 points). Top 2 from each pool advance to Knockouts.</div>
+    <div id="mixedPools"></div>
+  </section>
+
+  <section class="panel" id="panel-womens">
+    <div class="section-title">Women's Doubles</div>
+    <div class="section-sub">All 4 teams in one round robin (15 points each). Top 2 go directly to the final.</div>
+    <div id="womensPool"></div>
+  </section>
+
+  <section class="panel" id="panel-knockouts">
+    <div class="section-title">Knockout Stage</div>
+    <div class="section-sub">Semis: 21 points · Final: best of 3 sets to 21.</div>
+    <div id="knockouts"></div>
+  </section>
+</main>
+
+<!-- Share modal -->
+<div class="modal-backdrop" id="shareModal">
+  <div class="modal" id="shareModalContent">
+    <h2 id="shareModalTitle">Share team file</h2>
+    <p class="muted" id="shareModalSub"></p>
+    <div class="modal-link-box" id="shareLinkBox" style="color:var(--muted);max-height:none;">
+      <strong style="color:var(--text);font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:1.5px;">Share options:</strong><br><br>
+      <strong style="color:var(--accent)">🔗 Captain link</strong> — Sends each captain a web link where they pick players for each pair and submit live to Firebase. Share <em>before</em> pairs are finalized.<br><br>
+      <strong style="color:var(--accent)">📅 Fixture file</strong> — Read-only view of finalized pairs and full match schedule. Use this <em>after</em> you've locked in the pairs.
+    </div>
+    <div id="captainLinkBox" style="display:none;margin:12px 0;background:#1c2027;border:1px solid #2a2f38;padding:12px 14px;font-family:'JetBrains Mono',monospace;font-size:12px;word-break:break-all;color:#d4ff3a;"></div>
+    <div class="modal-actions">
+      <button class="modal-btn" id="downloadCaptainBtn">🔗 Copy Captain Link</button>
+      <button class="modal-btn" id="downloadFixtureBtn">⬇ Fixture file</button>
+      <button class="modal-btn secondary" id="closeModalBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ====================================================================
+// FIREBASE CONFIGURATION
+// ====================================================================
+// Paste your Firebase web app config here (from Firebase console > Project
+// settings > Your apps > Web app config). Required for captain submissions
+// to sync to the organizer dashboard. Leave as null to disable.
+// See FIREBASE_INTEGRATION.md for setup instructions.
+// ====================================================================
+window.FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCFl3n1PmSTN6eO4NdNDevIvFAmO78fV_M",
+  authDomain: "bengaluru-trekkers-ops.firebaseapp.com",
+  projectId: "bengaluru-trekkers-ops",
+  storageBucket: "bengaluru-trekkers-ops.firebasestorage.app",
+  messagingSenderId: "257754693783",
+  appId: "1:257754693783:web:56d100167617bc1ef769d2"
+};
+// ====================================================================
+
+// ============= DATA MODEL =============
+const DEFAULT_DATA = {
+  teams: {
+    alpha: {
+      name: "Alpha", color: "#ff5e5e",
+      players: [
+        { name: "Tushar Raysad", skill: "A", gender: "M" },
+        { name: "Jaado", skill: "A", gender: "M" },
+        { name: "Ravindra S Katti", skill: "I", gender: "M" },
+        { name: "Madhusudhan H M", skill: "I", gender: "M" },
+        { name: "Siddha", skill: "I", gender: "M" },
+        { name: "Gilli (Suleman)", skill: "B", gender: "M" },
+        { name: "Vaishnavi", skill: "I", gender: "F" },
+        { name: "Ankitha", skill: "I", gender: "F" },
+        { name: "Sakshi", skill: "B", gender: "F" },
+        { name: "bhavana", skill: "B", gender: "F" }
+      ]
+    },
+    beta: {
+      name: "Beta", color: "#4dd0e1",
+      players: [
+        { name: "Anvith M Acharya", skill: "A", gender: "M" },
+        { name: "Sharath K", skill: "A", gender: "M" },
+        { name: "Jayaram", skill: "I", gender: "M" },
+        { name: "Kartik s Bandekar", skill: "I", gender: "M" },
+        { name: "Anish", skill: "I", gender: "M" },
+        { name: "Shashank N", skill: "B", gender: "M" },
+        { name: "Nishu", skill: "I", gender: "F" },
+        { name: "Nagasmruthi R A", skill: "I", gender: "F" },
+        { name: "Anjali S", skill: "B", gender: "F" },
+        { name: "Likhitha", skill: "B", gender: "F" }
+      ]
+    },
+    charlie: {
+      name: "Charlie", color: "#ffb74d",
+      players: [
+        { name: "Chandu MR", skill: "A", gender: "M" },
+        { name: "Vinod", skill: "A", gender: "M" },
+        { name: "Ravikiran", skill: "I", gender: "M" },
+        { name: "Sarthak", skill: "I", gender: "M" },
+        { name: "Rocky", skill: "I", gender: "M" },
+        { name: "Akshay", skill: "B", gender: "M" },
+        { name: "Shweta Negali", skill: "I", gender: "F" },
+        { name: "Bindu Ganesh", skill: "I", gender: "F" },
+        { name: "Sanjana", skill: "B", gender: "F" },
+        { name: "Pooja C", skill: "B", gender: "F" }
+      ]
+    },
+    delta: {
+      name: "Delta", color: "#ba68c8",
+      players: [
+        { name: "Ganesh Kc", skill: "A", gender: "M" },
+        { name: "Akash", skill: "A", gender: "M" },
+        { name: "Chandan", skill: "I", gender: "M" },
+        { name: "Karan K Ummannanavar", skill: "I", gender: "M" },
+        { name: "Dharshan Kumar", skill: "B", gender: "M" },
+        { name: "Ganesh Palankar", skill: "B", gender: "M" },
+        { name: "Suchi", skill: "I", gender: "F" },
+        { name: "Srushti", skill: "I", gender: "F" },
+        { name: "Sriraksha R", skill: "B", gender: "F" },
+        { name: "(add 4th female)", skill: "B", gender: "F" }
+      ]
+    }
+  },
+  // pairs: per team, picking which players form which pair for each format
+  // Each team needs: 2 mens pairs (4 male players), 2 mixed pairs (2M+2F), 1 womens pair (2F)
+  // Total per team: 6M + 4F used = exactly the roster
+  pairs: {
+    alpha: { mens: [["", ""], ["", ""]], mixed: [["", ""], ["", ""]], womens: [["", ""]] },
+    beta:  { mens: [["", ""], ["", ""]], mixed: [["", ""], ["", ""]], womens: [["", ""]] },
+    charlie:{ mens: [["", ""], ["", ""]], mixed: [["", ""], ["", ""]], womens: [["", ""]] },
+    delta: { mens: [["", ""], ["", ""]], mixed: [["", ""], ["", ""]], womens: [["", ""]] }
+  },
+  // Pool assignments: each format has 2 pools. One team's pair from each pool.
+  // Men's: Pool 1 = team1.mens[0], team2.mens[0], team3.mens[0], team4.mens[0]
+  //        Pool 2 = team1.mens[1], team2.mens[1], team3.mens[1], team4.mens[1]
+  // Same logic for mixed.
+  // Womens: single round-robin of 4 teams.
+
+  // matches: keyed by match id; stores score
+  matches: {},
+  // knockout: stored separately, includes semi & final scores
+  knockouts: {
+    mens: { sf1: { p1: "", p2: "" }, sf2: { p1: "", p2: "" }, final: { sets: [["",""],["",""],["",""]] } },
+    mixed:{ sf1: { p1: "", p2: "" }, sf2: { p1: "", p2: "" }, final: { sets: [["",""],["",""],["",""]] } },
+    womens:{ final: { sets: [["",""],["",""],["",""]] } }
+  }
+};
+
+const STORAGE_KEY = "bt_badminton_v1";
+let data = loadData();
+
+function loadData() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return JSON.parse(JSON.stringify(DEFAULT_DATA));
+    const parsed = JSON.parse(stored);
+    // shallow merge defaults for any missing keys
+    return Object.assign(JSON.parse(JSON.stringify(DEFAULT_DATA)), parsed);
+  } catch (e) {
+    console.error(e);
+    return JSON.parse(JSON.stringify(DEFAULT_DATA));
+  }
+}
+function saveData() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+document.getElementById("resetBtn").addEventListener("click", () => {
+  if (confirm("Erase all rosters, pairs, scores, and knockout results? This cannot be undone.")) {
+    localStorage.removeItem(STORAGE_KEY);
+    data = loadData();
+    renderAll();
+  }
+});
+
+// ============= TAB SWITCHING =============
+document.getElementById("tabs").addEventListener("click", (e) => {
+  if (!e.target.classList.contains("tab")) return;
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  e.target.classList.add("active");
+  document.getElementById("panel-" + e.target.dataset.panel).classList.add("active");
+  renderAll();
+});
+
+// ============= ROSTERS =============
+function calcTeamTotalPoints() {
+  // For each team, sum the Pts won by all their pairs across all formats (pools + knockouts)
+  // Pool match: winner gets 2 pts (we'll mirror calcStandings logic)
+  // Semi win: 3 bonus pts; Final win: 5 bonus pts; runner-up final: 2 bonus pts (just for celebration)
+  const totals = {};
+  for (const tid of Object.keys(data.teams)) {
+    totals[tid] = { pool: 0, ko: 0, total: 0, wins: 0, played: 0 };
+  }
+
+  // POOL points
+  const accumPool = (pool) => {
+    pool.forEach(p => p.poolName = p.poolName || "X");
+    const standings = calcStandings(pool);
+    standings.forEach(s => {
+      totals[s.pair.tid].pool += s.Pts;
+      totals[s.pair.tid].wins += s.W;
+      totals[s.pair.tid].played += s.P;
+    });
+  };
+  ["alpha","beta","charlie","delta"].forEach(() => {});
+  // mens pools
+  const mPoolA = ["alpha","beta","charlie","delta"].map(t => ({...pairSet(t,"mens",0), poolName:"A"}));
+  const mPoolB = ["alpha","beta","charlie","delta"].map(t => ({...pairSet(t,"mens",1), poolName:"B"}));
+  const xPoolA = ["alpha","beta","charlie","delta"].map(t => ({...pairSet(t,"mixed",0), poolName:"A"}));
+  const xPoolB = ["alpha","beta","charlie","delta"].map(t => ({...pairSet(t,"mixed",1), poolName:"B"}));
+  const wPool  = ["alpha","beta","charlie","delta"].map(t => ({...pairSet(t,"womens",0), poolName:"W"}));
+  accumPool(mPoolA); accumPool(mPoolB);
+  accumPool(xPoolA); accumPool(xPoolB);
+  accumPool(wPool);
+
+  // KO points: SF win = 3 pts, Final win = 5 pts, Final runner-up = 2 pts
+  ["mens","mixed"].forEach(format => {
+    const q = getQualifiers(format);
+    const ko = data.knockouts[format];
+    const sf1w = getSfWinner(format, "sf1", q, ko);
+    const sf2w = getSfWinner(format, "sf2", q, ko);
+    if (sf1w) totals[sf1w.tid].ko += 3;
+    if (sf2w) totals[sf2w.tid].ko += 3;
+    if (sf1w && sf2w) {
+      const result = getFinalWinner(ko, sf1w, sf2w);
+      if (result) {
+        totals[result.winner.tid].ko += 5;
+        const loser = result.winner === sf1w ? sf2w : sf1w;
+        totals[loser.tid].ko += 2;
+      }
+    }
+  });
+  // Womens KO
+  const qw = getQualifiers("womens");
+  const kow = data.knockouts.womens;
+  if (qw.poolA[0] && qw.poolA[1]) {
+    const result = getFinalWinner(kow, qw.poolA[0], qw.poolA[1]);
+    if (result) {
+      totals[result.winner.tid].ko += 5;
+      const loser = result.winner === qw.poolA[0] ? qw.poolA[1] : qw.poolA[0];
+      totals[loser.tid].ko += 2;
+    }
+  }
+
+  for (const tid of Object.keys(totals)) {
+    totals[tid].total = totals[tid].pool + totals[tid].ko;
+  }
+  return totals;
+}
+
+function renderLeaderboard() {
+  const wrap = document.getElementById("leaderboardWrap");
+  const totals = calcTeamTotalPoints();
+  const sorted = Object.entries(totals)
+    .map(([tid, t]) => ({ tid, ...t, team: data.teams[tid] }))
+    .sort((a, b) => b.total - a.total);
+  const maxTotal = Math.max(...sorted.map(s => s.total), 1);
+  wrap.innerHTML = `
+    <div class="leaderboard">
+      <div class="leaderboard-title"><span class="trophy">🏆</span> Team Championship Standings</div>
+      <div class="leaderboard-sub">Pool wins · 2 pts · SF win · 3 · Final win · 5 · Runner-up · 2</div>
+      <div class="leaderboard-grid">
+        ${sorted.map((s, i) => `
+          <div class="lb-card rank-${i+1}" style="--team-color:${s.team.color}">
+            <div class="lb-rank">#${i+1}</div>
+            <div class="lb-team">${s.team.name}</div>
+            <div class="lb-points">${s.total}</div>
+            <div class="lb-label">Total Points</div>
+            <div class="lb-breakdown">
+              <span>Pool · <strong>${s.pool}</strong></span>
+              <span>KO · <strong>${s.ko}</strong></span>
+              <span>W-L · <strong>${s.wins}</strong>/${s.played - s.wins}</span>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function renderRosters() {
+  renderLeaderboard();
+  const grid = document.getElementById("rostersGrid");
+  grid.innerHTML = "";
+  for (const [tid, team] of Object.entries(data.teams)) {
+    const males = team.players.filter(p => p.gender === "M").length;
+    const females = team.players.filter(p => p.gender === "F").length;
+    const card = document.createElement("div");
+    card.className = "team-card";
+    card.style.setProperty("--team-color", team.color);
+    card.innerHTML = `
+      <div class="team-header">
+        <div class="team-name">${team.name}</div>
+        <div class="team-count">${males}M · ${females}F · ${team.players.length} total</div>
+      </div>
+      <ul class="player-list">
+        ${team.players.map((p, i) => `
+          <li class="player-row">
+            <span class="player-num">${String(i+1).padStart(2,'0')}</span>
+            <span class="player-name${p.name.startsWith('(') ? ' placeholder' : ''}" data-team="${tid}" data-idx="${i}" contenteditable="true">${p.name}</span>
+            <span class="badge badge-${p.skill}" title="Skill">${p.skill}</span>
+            <span class="badge badge-${p.gender}">${p.gender}</span>
+          </li>
+        `).join("")}
+      </ul>
+      <button class="share-btn" data-share="${tid}">⎘ Generate share link</button>
+    `;
+    grid.appendChild(card);
+  }
+  // editable names
+  grid.querySelectorAll(".player-name").forEach(el => {
+    el.addEventListener("blur", (e) => {
+      const tid = e.target.dataset.team;
+      const idx = parseInt(e.target.dataset.idx);
+      const newName = e.target.textContent.trim() || "(unnamed)";
+      data.teams[tid].players[idx].name = newName;
+      saveData();
+      renderAll();
+    });
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+    });
+  });
+  // share buttons
+  grid.querySelectorAll(".share-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const tid = e.currentTarget.dataset.share;
+      openShareModal(tid);
+    });
+  });
+}
+
+// ============= PAIR BUILDER =============
+function renderPairBuilder() {
+  const cont = document.getElementById("pairBuilder");
+  cont.innerHTML = "";
+  for (const [tid, team] of Object.entries(data.teams)) {
+    const males = team.players.filter(p => p.gender === "M").map(p => p.name);
+    const females = team.players.filter(p => p.gender === "F").map(p => p.name);
+    const pairs = data.pairs[tid];
+
+    // Track usage to detect duplicates
+    const usage = {};
+    const tally = (n) => { if (n) usage[n] = (usage[n] || 0) + 1; };
+    pairs.mens.forEach(p => p.forEach(tally));
+    pairs.mixed.forEach(p => p.forEach(tally));
+    pairs.womens.forEach(p => p.forEach(tally));
+
+    const card = document.createElement("div");
+    card.className = "pair-team-card";
+    card.style.setProperty("--team-color", team.color);
+
+    const buildSelect = (val, options, slotId, isDup) => `
+      <select class="pair-select ${isDup ? 'dup' : ''}" data-slot="${slotId}">
+        <option value="">— Select —</option>
+        ${options.map(n => `<option value="${n}" ${val===n?'selected':''}>${n}</option>`).join("")}
+      </select>
+    `;
+
+    const mensHtml = pairs.mens.map((pair, i) => `
+      <div class="pair-row">
+        ${buildSelect(pair[0], males, `${tid}|mens|${i}|0`, usage[pair[0]] > 1)}
+        ${buildSelect(pair[1], males, `${tid}|mens|${i}|1`, usage[pair[1]] > 1)}
+      </div>
+    `).join("");
+
+    const mixedHtml = pairs.mixed.map((pair, i) => `
+      <div class="pair-row">
+        ${buildSelect(pair[0], males, `${tid}|mixed|${i}|0`, usage[pair[0]] > 1)}
+        ${buildSelect(pair[1], females, `${tid}|mixed|${i}|1`, usage[pair[1]] > 1)}
+      </div>
+    `).join("");
+
+    const womensHtml = pairs.womens.map((pair, i) => `
+      <div class="pair-row">
+        ${buildSelect(pair[0], females, `${tid}|womens|${i}|0`, usage[pair[0]] > 1)}
+        ${buildSelect(pair[1], females, `${tid}|womens|${i}|1`, usage[pair[1]] > 1)}
+      </div>
+    `).join("");
+
+    // status check
+    const allFilled = (arr) => arr.every(p => p[0] && p[1]);
+    const mensOk = allFilled(pairs.mens);
+    const mixedOk = allFilled(pairs.mixed);
+    const womensOk = allFilled(pairs.womens);
+    const totalUsed = Object.values(usage).filter(v => v >= 1).length;
+    const totalPlayers = team.players.length;
+    const hasDupes = Object.values(usage).some(v => v > 1);
+
+    card.innerHTML = `
+      <div class="team-header">
+        <div class="team-name">${team.name}</div>
+        <div class="team-count">${totalUsed}/${totalPlayers} placed ${hasDupes ? '· ⚠ duplicates' : ''}</div>
+      </div>
+      <div class="format-block">
+        <div class="format-label">Men's Doubles (2 pairs) <span class="${mensOk?'status-ok':'status-warn'}">${mensOk?'✓':'⋯'}</span></div>
+        ${mensHtml}
+      </div>
+      <div class="format-block">
+        <div class="format-label">Mixed Doubles (2 pairs) <span class="${mixedOk?'status-ok':'status-warn'}">${mixedOk?'✓':'⋯'}</span></div>
+        ${mixedHtml}
+      </div>
+      <div class="format-block">
+        <div class="format-label">Women's Doubles (1 pair) <span class="${womensOk?'status-ok':'status-warn'}">${womensOk?'✓':'⋯'}</span></div>
+        ${womensHtml}
+      </div>
+    `;
+    cont.appendChild(card);
+  }
+  cont.querySelectorAll("select.pair-select").forEach(sel => {
+    sel.addEventListener("change", (e) => {
+      const [tid, fmt, pairIdx, slotIdx] = e.target.dataset.slot.split("|");
+      data.pairs[tid][fmt][parseInt(pairIdx)][parseInt(slotIdx)] = e.target.value;
+      saveData();
+      renderPairBuilder();
+    });
+  });
+}
+
+// ============= POOL HELPERS =============
+function getPairLabel(tid, format, pairIdx) {
+  const pair = data.pairs[tid][format][pairIdx];
+  const team = data.teams[tid];
+  if (!pair[0] || !pair[1]) return `${team.name} ${format}#${pairIdx+1} (incomplete)`;
+  return `${pair[0]} & ${pair[1]}`;
+}
+function pairSet(tid, format, pairIdx) {
+  return { tid, format, pairIdx, label: getPairLabel(tid, format, pairIdx), team: data.teams[tid] };
+}
+
+// Round-robin schedule for 4 teams: 3 rounds, each plays 3 matches
+function rr4Schedule(teams) {
+  const [a,b,c,d] = teams;
+  return [
+    { round: 1, matches: [[a,b],[c,d]] },
+    { round: 2, matches: [[a,c],[b,d]] },
+    { round: 3, matches: [[a,d],[b,c]] }
+  ];
+}
+function pairKey(p) { return `${p.tid}-${p.format}-${p.pairIdx}`; }
+function matchId(format, pool, p1, p2) {
+  // canonical: alphabetical by pairKey
+  const a = pairKey(p1), b = pairKey(p2);
+  const [k1, k2] = a < b ? [a,b] : [b,a];
+  return `${format}__${pool}__${k1}__VS__${k2}`;
+}
+
+function recordMatch(mid, s1, s2) {
+  data.matches[mid] = { s1, s2 };
+  saveData();
+}
+
+function getMatch(mid) { return data.matches[mid] || { s1: "", s2: "" }; }
+
+function calcStandings(pool) {
+  // pool: array of pair objects
+  const stats = {};
+  pool.forEach(p => {
+    stats[pairKey(p)] = { pair: p, P:0, W:0, L:0, PF:0, PA:0, Pts:0 };
+  });
+  for (let i=0; i<pool.length; i++) {
+    for (let j=i+1; j<pool.length; j++) {
+      const p1 = pool[i], p2 = pool[j];
+      // determine format/poolname from the pair (same for all in the pool)
+      const m = getMatch(matchId(p1.format, p1.poolName, p1, p2));
+      if (m.s1 === "" || m.s2 === "") continue;
+      const s1 = parseInt(m.s1), s2 = parseInt(m.s2);
+      if (isNaN(s1) || isNaN(s2)) continue;
+      const k1 = pairKey(p1), k2 = pairKey(p2);
+      // canonical match stores score as player1, player2 in alphabetical key order
+      // Need to align scores: matchId uses sorted keys, so s1 = sorted-first-key
+      const [first, second] = pairKey(p1) < pairKey(p2) ? [p1, p2] : [p2, p1];
+      const fs = pairKey(p1) < pairKey(p2) ? s1 : s2;
+      const ss = pairKey(p1) < pairKey(p2) ? s2 : s1;
+      stats[pairKey(first)].P++;
+      stats[pairKey(second)].P++;
+      stats[pairKey(first)].PF += fs;
+      stats[pairKey(first)].PA += ss;
+      stats[pairKey(second)].PF += ss;
+      stats[pairKey(second)].PA += fs;
+      if (fs > ss) {
+        stats[pairKey(first)].W++; stats[pairKey(first)].Pts += 2;
+        stats[pairKey(second)].L++;
+      } else if (ss > fs) {
+        stats[pairKey(second)].W++; stats[pairKey(second)].Pts += 2;
+        stats[pairKey(first)].L++;
+      }
+    }
+  }
+  return Object.values(stats).sort((a,b) => {
+    if (b.Pts !== a.Pts) return b.Pts - a.Pts;
+    return (b.PF - b.PA) - (a.PF - a.PA);
+  });
+}
+
+function renderPool(format, pool, container, poolLabel) {
+  // Annotate each pair with poolName so calcStandings knows which match to look up
+  pool.forEach(p => p.poolName = poolLabel);
+  const standings = calcStandings(pool);
+  const sched = rr4Schedule(pool);
+
+  const card = document.createElement("div");
+  card.className = "pool-card";
+  card.innerHTML = `
+    <div class="pool-title"><span class="pool-tag">POOL ${poolLabel}</span></div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Pair</th><th>P</th><th>W</th><th>L</th><th>+/-</th><th>Pts</th></tr>
+      </thead>
+      <tbody>
+        ${standings.map((s, i) => `
+          <tr class="${i < 2 ? 'qualified' : ''}">
+            <td class="num-cell">${i+1}</td>
+            <td>
+              <div class="standings-team-name">
+                <span class="team-dot" style="background:${s.pair.team.color}"></span>
+                ${s.pair.label}
+              </div>
+            </td>
+            <td class="num-cell">${s.P}</td>
+            <td class="num-cell">${s.W}</td>
+            <td class="num-cell">${s.L}</td>
+            <td class="num-cell">${s.PF-s.PA > 0 ? '+' : ''}${s.PF - s.PA}</td>
+            <td class="num-cell"><strong>${s.Pts}</strong></td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+    <div class="matches-list">
+      ${sched.map(rnd => `
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px;">Round ${rnd.round}</div>
+        ${rnd.matches.map(([p1,p2]) => {
+          const mid = matchId(format, poolLabel, p1, p2);
+          const m = getMatch(mid);
+          // since matchId sorts keys, score s1 belongs to alphabetically-first key
+          const firstKey = [pairKey(p1), pairKey(p2)].sort()[0];
+          const isP1First = pairKey(p1) === firstKey;
+          const p1Score = isP1First ? m.s1 : m.s2;
+          const p2Score = isP1First ? m.s2 : m.s1;
+          const completed = m.s1 !== "" && m.s2 !== "";
+          let p1Class = "", p2Class = "";
+          if (completed) {
+            const a = parseInt(p1Score), b = parseInt(p2Score);
+            if (a > b) { p1Class = "winner"; p2Class = "loser"; }
+            else if (b > a) { p2Class = "winner"; p1Class = "loser"; }
+          }
+          return `
+            <div class="match-row ${completed?'completed':''}">
+              <div class="match-team ${p1Class}">
+                <div class="match-pair-line">
+                  <span class="team-dot" style="background:${p1.team.color}"></span>
+                  ${p1.label}
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <input type="number" class="score-input" data-mid="${mid}" data-side="${isP1First?'s1':'s2'}" value="${p1Score}" min="0" max="30" placeholder="-" />
+                <span class="score-divider">vs</span>
+                <input type="number" class="score-input" data-mid="${mid}" data-side="${isP1First?'s2':'s1'}" value="${p2Score}" min="0" max="30" placeholder="-" />
+              </div>
+              <div class="match-team ${p2Class}">
+                <div class="match-pair-line">
+                  <span class="team-dot" style="background:${p2.team.color}"></span>
+                  ${p2.label}
+                </div>
+              </div>
+              <div class="match-meta">15 PT</div>
+            </div>
+          `;
+        }).join("")}
+      `).join("")}
+    </div>
+  `;
+  container.appendChild(card);
+}
+
+function renderMensPools() {
+  const cont = document.getElementById("mensPools");
+  cont.innerHTML = '<div class="pools-grid" id="mensGrid"></div>';
+  const grid = document.getElementById("mensGrid");
+  // Pool A: team1.mens[0] for each team
+  const poolA = ["alpha","beta","charlie","delta"].map(t => pairSet(t, "mens", 0));
+  const poolB = ["alpha","beta","charlie","delta"].map(t => pairSet(t, "mens", 1));
+  renderPool("mens", poolA, grid, "A");
+  renderPool("mens", poolB, grid, "B");
+  attachScoreListeners();
+}
+
+function renderMixedPools() {
+  const cont = document.getElementById("mixedPools");
+  cont.innerHTML = '<div class="pools-grid" id="mixedGrid"></div>';
+  const grid = document.getElementById("mixedGrid");
+  const poolA = ["alpha","beta","charlie","delta"].map(t => pairSet(t, "mixed", 0));
+  const poolB = ["alpha","beta","charlie","delta"].map(t => pairSet(t, "mixed", 1));
+  renderPool("mixed", poolA, grid, "A");
+  renderPool("mixed", poolB, grid, "B");
+  attachScoreListeners();
+}
+
+function renderWomensPool() {
+  const cont = document.getElementById("womensPool");
+  cont.innerHTML = "";
+  const pool = ["alpha","beta","charlie","delta"].map(t => pairSet(t, "womens", 0));
+  renderPool("womens", pool, cont, "W");
+  attachScoreListeners();
+}
+
+function attachScoreListeners() {
+  document.querySelectorAll(".score-input").forEach(inp => {
+    inp.addEventListener("change", (e) => {
+      const mid = e.target.dataset.mid;
+      const side = e.target.dataset.side;
+      const val = e.target.value;
+      const cur = getMatch(mid);
+      cur[side] = val;
+      data.matches[mid] = cur;
+      saveData();
+      renderAll();
+    });
+  });
+}
+
+// ============= KNOCKOUTS =============
+function getQualifiers(format) {
+  // returns top 2 from each pool
+  const out = { poolA: [], poolB: [] };
+  if (format === "mens" || format === "mixed") {
+    const poolA = ["alpha","beta","charlie","delta"].map(t => pairSet(t, format, 0));
+    const poolB = ["alpha","beta","charlie","delta"].map(t => pairSet(t, format, 1));
+    poolA.forEach(p => p.poolName = "A");
+    poolB.forEach(p => p.poolName = "B");
+    const sA = calcStandings(poolA);
+    const sB = calcStandings(poolB);
+    out.poolA = sA.slice(0,2).map(s => s.pair);
+    out.poolB = sB.slice(0,2).map(s => s.pair);
+  } else if (format === "womens") {
+    const pool = ["alpha","beta","charlie","delta"].map(t => pairSet(t, "womens", 0));
+    pool.forEach(p => p.poolName = "W");
+    const s = calcStandings(pool);
+    out.poolA = s.slice(0,2).map(p => p.pair);
+  }
+  return out;
+}
+
+function renderKnockouts() {
+  const cont = document.getElementById("knockouts");
+  cont.innerHTML = "";
+  ["mens","mixed"].forEach(format => {
+    const q = getQualifiers(format);
+    const ko = data.knockouts[format];
+    const sec = document.createElement("div");
+    sec.className = "bracket-section";
+    sec.innerHTML = `
+      <div class="bracket-title">${format === "mens" ? "Men's" : "Mixed"} Doubles · Bracket</div>
+      <div class="bracket-rounds">
+        <div>
+          <div class="bracket-col-title">Semi-finals · 21 PT</div>
+          <div class="bracket-match">
+            <div class="bracket-col-title" style="margin-bottom:4px;">SF1 — A1 vs B2</div>
+            <div class="bracket-team ${q.poolA[0] ? '' : 'placeholder'}">
+              <span><span class="team-dot" style="background:${q.poolA[0]?.team.color || '#444'};display:inline-block;margin-right:6px;"></span>${q.poolA[0]?.label || 'Pool A · 1st'}</span>
+              <input class="final-score-input" data-ko="${format}|sf1|p1" type="number" min="0" max="30" value="${ko.sf1.p1}" />
+            </div>
+            <div class="bracket-vs">vs</div>
+            <div class="bracket-team ${q.poolB[1] ? '' : 'placeholder'}">
+              <span><span class="team-dot" style="background:${q.poolB[1]?.team.color || '#444'};display:inline-block;margin-right:6px;"></span>${q.poolB[1]?.label || 'Pool B · 2nd'}</span>
+              <input class="final-score-input" data-ko="${format}|sf1|p2" type="number" min="0" max="30" value="${ko.sf1.p2}" />
+            </div>
+          </div>
+          <div class="bracket-match">
+            <div class="bracket-col-title" style="margin-bottom:4px;">SF2 — B1 vs A2</div>
+            <div class="bracket-team ${q.poolB[0] ? '' : 'placeholder'}">
+              <span><span class="team-dot" style="background:${q.poolB[0]?.team.color || '#444'};display:inline-block;margin-right:6px;"></span>${q.poolB[0]?.label || 'Pool B · 1st'}</span>
+              <input class="final-score-input" data-ko="${format}|sf2|p1" type="number" min="0" max="30" value="${ko.sf2.p1}" />
+            </div>
+            <div class="bracket-vs">vs</div>
+            <div class="bracket-team ${q.poolA[1] ? '' : 'placeholder'}">
+              <span><span class="team-dot" style="background:${q.poolA[1]?.team.color || '#444'};display:inline-block;margin-right:6px;"></span>${q.poolA[1]?.label || 'Pool A · 2nd'}</span>
+              <input class="final-score-input" data-ko="${format}|sf2|p2" type="number" min="0" max="30" value="${ko.sf2.p2}" />
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="bracket-col-title">Final · Best of 3 to 21</div>
+          ${renderFinalBlock(format, q, ko)}
+        </div>
+        <div>
+          <div class="bracket-col-title">Champion</div>
+          ${renderChampion(format, ko)}
+        </div>
+      </div>
+    `;
+    cont.appendChild(sec);
+  });
+
+  // Women's
+  const qw = getQualifiers("womens");
+  const kow = data.knockouts.womens;
+  const sec = document.createElement("div");
+  sec.className = "bracket-section";
+  sec.innerHTML = `
+    <div class="bracket-title">Women's Doubles · Final</div>
+    <div class="bracket-rounds" style="grid-template-columns:1fr 1fr;">
+      <div>
+        <div class="bracket-col-title">Final · Best of 3 to 21</div>
+        ${renderWomensFinalBlock(qw, kow)}
+      </div>
+      <div>
+        <div class="bracket-col-title">Champion</div>
+        ${renderWomensChampion(kow, qw)}
+      </div>
+    </div>
+  `;
+  cont.appendChild(sec);
+
+  attachKnockoutListeners();
+}
+
+function getSfWinner(format, sfKey, q, ko) {
+  // returns {label, color} or null
+  const sf = ko[sfKey];
+  const a = parseInt(sf.p1), b = parseInt(sf.p2);
+  if (isNaN(a) || isNaN(b)) return null;
+  // map sf to teams
+  const teams = sfKey === "sf1" ? [q.poolA[0], q.poolB[1]] : [q.poolB[0], q.poolA[1]];
+  if (!teams[0] || !teams[1]) return null;
+  if (a > b) return teams[0];
+  if (b > a) return teams[1];
+  return null;
+}
+
+function renderFinalBlock(format, q, ko) {
+  const sf1w = getSfWinner(format, "sf1", q, ko);
+  const sf2w = getSfWinner(format, "sf2", q, ko);
+  const sets = ko.final.sets;
+  return `
+    <div class="bracket-match final">
+      <div class="bracket-team ${sf1w?'':'placeholder'}">
+        <span><span class="team-dot" style="background:${sf1w?.team.color || '#444'};display:inline-block;margin-right:6px;"></span>${sf1w?.label || 'SF1 winner'}</span>
+      </div>
+      ${sets.map((s, i) => `
+        <div class="final-set-row">
+          <span class="set-label">SET ${i+1}</span>
+          <input class="final-score-input" data-ko="${format}|final|set${i}|0" type="number" min="0" max="30" value="${s[0]}" />
+          <span class="score-divider">·</span>
+          <input class="final-score-input" data-ko="${format}|final|set${i}|1" type="number" min="0" max="30" value="${s[1]}" />
+        </div>
+      `).join("")}
+      <div class="bracket-team ${sf2w?'':'placeholder'}">
+        <span><span class="team-dot" style="background:${sf2w?.team.color || '#444'};display:inline-block;margin-right:6px;"></span>${sf2w?.label || 'SF2 winner'}</span>
+      </div>
+    </div>
+  `;
+}
+
+function getFinalWinner(ko, leftPair, rightPair) {
+  // best of 3
+  let leftSets = 0, rightSets = 0;
+  for (const s of ko.final.sets) {
+    const a = parseInt(s[0]), b = parseInt(s[1]);
+    if (isNaN(a) || isNaN(b)) continue;
+    if (a > b) leftSets++; else if (b > a) rightSets++;
+  }
+  if (leftSets >= 2 && leftSets > rightSets) return { winner: leftPair, score: `${leftSets}-${rightSets}` };
+  if (rightSets >= 2 && rightSets > leftSets) return { winner: rightPair, score: `${rightSets}-${leftSets}` };
+  return null;
+}
+
+function renderChampion(format, ko) {
+  const q = getQualifiers(format);
+  const sf1w = getSfWinner(format, "sf1", q, ko);
+  const sf2w = getSfWinner(format, "sf2", q, ko);
+  if (!sf1w || !sf2w) {
+    return `<div class="bracket-match"><div class="bracket-team placeholder">TBD — finalists pending</div></div>`;
+  }
+  const result = getFinalWinner(ko, sf1w, sf2w);
+  if (!result) {
+    return `<div class="bracket-match"><div class="bracket-team placeholder">Final in progress</div></div>`;
+  }
+  return `
+    <div class="bracket-match final" style="border-color:var(--win);background:rgba(74,222,128,0.05);">
+      <div style="text-align:center;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--win);margin-bottom:8px;">🏆 CHAMPION</div>
+      <div style="text-align:center;font-size:16px;font-weight:600;">
+        <span class="team-dot" style="background:${result.winner.team.color};display:inline-block;margin-right:6px;"></span>
+        ${result.winner.label}
+      </div>
+      <div style="text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:6px;">Sets: ${result.score}</div>
+    </div>
+  `;
+}
+
+function renderWomensFinalBlock(q, ko) {
+  const sets = ko.final.sets;
+  const a = q.poolA[0], b = q.poolA[1];
+  return `
+    <div class="bracket-match final">
+      <div class="bracket-team ${a?'':'placeholder'}">
+        <span><span class="team-dot" style="background:${a?.team.color || '#444'};display:inline-block;margin-right:6px;"></span>${a?.label || 'Round-Robin · 1st'}</span>
+      </div>
+      ${sets.map((s, i) => `
+        <div class="final-set-row">
+          <span class="set-label">SET ${i+1}</span>
+          <input class="final-score-input" data-ko="womens|final|set${i}|0" type="number" min="0" max="30" value="${s[0]}" />
+          <span class="score-divider">·</span>
+          <input class="final-score-input" data-ko="womens|final|set${i}|1" type="number" min="0" max="30" value="${s[1]}" />
+        </div>
+      `).join("")}
+      <div class="bracket-team ${b?'':'placeholder'}">
+        <span><span class="team-dot" style="background:${b?.team.color || '#444'};display:inline-block;margin-right:6px;"></span>${b?.label || 'Round-Robin · 2nd'}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderWomensChampion(ko, q) {
+  const a = q.poolA[0], b = q.poolA[1];
+  if (!a || !b) return `<div class="bracket-match"><div class="bracket-team placeholder">TBD — finalists pending</div></div>`;
+  const result = getFinalWinner(ko, a, b);
+  if (!result) return `<div class="bracket-match"><div class="bracket-team placeholder">Final in progress</div></div>`;
+  return `
+    <div class="bracket-match final" style="border-color:var(--win);background:rgba(74,222,128,0.05);">
+      <div style="text-align:center;font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;color:var(--win);margin-bottom:8px;">🏆 CHAMPION</div>
+      <div style="text-align:center;font-size:16px;font-weight:600;">
+        <span class="team-dot" style="background:${result.winner.team.color};display:inline-block;margin-right:6px;"></span>
+        ${result.winner.label}
+      </div>
+      <div style="text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:6px;">Sets: ${result.score}</div>
+    </div>
+  `;
+}
+
+function attachKnockoutListeners() {
+  document.querySelectorAll('input[data-ko]').forEach(inp => {
+    inp.addEventListener("change", (e) => {
+      const parts = e.target.dataset.ko.split("|");
+      const format = parts[0];
+      if (parts[1] === "sf1" || parts[1] === "sf2") {
+        data.knockouts[format][parts[1]][parts[2]] = e.target.value;
+      } else if (parts[1] === "final") {
+        const setIdx = parseInt(parts[2].replace("set",""));
+        const slot = parseInt(parts[3]);
+        data.knockouts[format].final.sets[setIdx][slot] = e.target.value;
+      }
+      saveData();
+      renderKnockouts();
+    });
+  });
+}
+
+// ============= SHARE LINKS =============
+// Compact payload: short keys, only needed fields. Pairs are arrays of names.
+function buildSharePayload(tid) {
+  const payload = {
+    v: 1,
+    t: tid, // current team
+    T: {},  // teams: { tid: { n: name, c: color, p: [[name, skill, gender], ...] } }
+    P: {}   // pairs: { tid: { m: [[a,b],[a,b]], x: [[a,b],[a,b]], w: [[a,b]] } }
+  };
+  for (const [k, t] of Object.entries(data.teams)) {
+    payload.T[k] = {
+      n: t.name,
+      c: t.color,
+      p: t.players.map(pl => [pl.name, pl.skill, pl.gender])
+    };
+  }
+  for (const [k, p] of Object.entries(data.pairs)) {
+    payload.P[k] = { m: p.mens, x: p.mixed, w: p.womens };
+  }
+  return payload;
+}
+
+function encodePayload(p) {
+  const json = JSON.stringify(p);
+  return btoa(unescape(encodeURIComponent(json)));
+}
+
+function decodePayload(s) {
+  try {
+    const json = decodeURIComponent(escape(atob(s)));
+    return JSON.parse(json);
+  } catch (e) {
+    console.error("Decode failed", e);
+    return null;
+  }
+}
+
+function buildShareUrl(tid) {
+  const payload = buildSharePayload(tid);
+  const encoded = encodePayload(payload);
+  const base = window.location.href.split('#')[0].split('?')[0];
+  return `${base}#t=${tid}&d=${encoded}`;
+}
+
+// Generate a standalone HTML file with the team's data baked in
+function generateTeamFixtureHTML(tid) {
+  const team = data.teams[tid];
+  const otherTeams = ["alpha","beta","charlie","delta"].filter(t => t !== tid);
+
+  // Helper to render a pair label
+  const pairLabel = (t, format, idx) => {
+    const p = data.pairs[t][format][idx];
+    if (!p[0] || !p[1]) return `${data.teams[t].name} ${format} #${idx+1} — TBD`;
+    return `${p[0]} & ${p[1]}`;
+  };
+
+  // Build matches per format
+  const buildMatchRows = (format) => {
+    const isWomens = format === "womens";
+    const pools = isWomens ? [0] : [0, 1];
+    let html = "";
+    pools.forEach(poolIdx => {
+      const poolName = isWomens ? "All Teams" : `Pool ${poolIdx === 0 ? "A" : "B"}`;
+      const myPair = pairLabel(tid, format, poolIdx);
+      html += `<div class="pool-header">${poolName} — Your Pair: <strong>${myPair}</strong></div>`;
+      otherTeams.forEach(otid => {
+        const opp = pairLabel(otid, format, poolIdx);
+        const oppTeam = data.teams[otid];
+        html += `
+          <div class="match">
+            <div class="my-pair">${myPair}</div>
+            <div class="vs">vs · 15 PT</div>
+            <div class="opp-pair">
+              <span class="dot" style="background:${oppTeam.color}"></span>
+              ${opp}
+              <small>(${oppTeam.name})</small>
+            </div>
+          </div>`;
+      });
+    });
+    return html;
+  };
+
+  const males = team.players.filter(p => p.gender === "M");
+  const females = team.players.filter(p => p.gender === "F");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BT Badminton — Team ${team.name}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --surface: #14171c;
+    --surface-2: #1c2027;
+    --border: #2a2f38;
+    --text: #f4f5f7;
+    --muted: #8b919e;
+    --accent: #d4ff3a;
+    --team-color: ${team.color};
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+  .banner {
+    background: linear-gradient(90deg, var(--team-color)dd, var(--team-color)33 60%, transparent);
+    padding: 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .team-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 56px;
+    letter-spacing: 4px;
+    color: #fff;
+    line-height: 1;
+  }
+  .tag {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 5px 12px;
+    background: rgba(0,0,0,0.5);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  main { max-width: 1000px; margin: 0 auto; padding: 0 24px; }
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--team-color);
+    padding: 24px;
+    margin-bottom: 18px;
+  }
+  h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    margin-bottom: 16px;
+  }
+  .roster-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 600px) { .roster-grid { grid-template-columns: 1fr; } }
+  .roster-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+  .player {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+  }
+  .player:last-child { border-bottom: none; }
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .badge-A { background: rgba(212,255,58,0.15); color: var(--accent); }
+  .badge-I { background: rgba(77,208,225,0.15); color: #4dd0e1; }
+  .badge-B { background: rgba(186,104,200,0.15); color: #ba68c8; }
+  .pair {
+    background: var(--surface-2);
+    padding: 12px 16px;
+    margin-bottom: 6px;
+    border-left: 3px solid var(--team-color);
+    font-size: 14px;
+  }
+  .pair-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 14px 0 6px;
+  }
+  .pool-header {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 14px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pool-header strong { color: var(--team-color); }
+  .match {
+    background: var(--surface-2);
+    padding: 12px 16px;
+    margin-bottom: 6px;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 12px;
+    align-items: center;
+    font-size: 13px;
+    border-left: 3px solid var(--team-color);
+  }
+  .match .my-pair { color: var(--team-color); font-weight: 600; }
+  .match .vs {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--muted);
+    font-size: 10px;
+    text-align: center;
+  }
+  .match small { color: var(--muted); margin-left: 4px; }
+  .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .info-text {
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text);
+  }
+  .footer {
+    text-align: center;
+    margin-top: 40px;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  @media print {
+    body { background: #fff; color: #000; }
+    .section { background: #fff; border-color: #ccc; }
+    .match, .pair { background: #f5f5f5; }
+  }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <div class="team-name">TEAM ${team.name.toUpperCase()}</div>
+    <div class="tag">Your Fixture · BT Badminton Tournament</div>
+  </div>
+  <main>
+    <div class="section">
+      <h2>Your Squad — ${team.players.length} Players</h2>
+      <div class="roster-grid">
+        <div>
+          <div class="roster-label">Men · ${males.length}</div>
+          ${males.map((p, i) => `
+            <div class="player">
+              <span>${i+1}. ${p.name}</span>
+              <span class="badge badge-${p.skill}">${p.skill}</span>
+            </div>
+          `).join("")}
+        </div>
+        <div>
+          <div class="roster-label">Women · ${females.length}</div>
+          ${females.map((p, i) => `
+            <div class="player">
+              <span>${i+1}. ${p.name}</span>
+              <span class="badge badge-${p.skill}">${p.skill}</span>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Your Pairs</h2>
+      <div class="pair-label">Men's Doubles</div>
+      <div class="pair">Pair 1 — ${pairLabel(tid, "mens", 0)}</div>
+      <div class="pair">Pair 2 — ${pairLabel(tid, "mens", 1)}</div>
+      <div class="pair-label">Mixed Doubles</div>
+      <div class="pair">Pair 1 — ${pairLabel(tid, "mixed", 0)}</div>
+      <div class="pair">Pair 2 — ${pairLabel(tid, "mixed", 1)}</div>
+      <div class="pair-label">Women's Doubles</div>
+      <div class="pair">${pairLabel(tid, "womens", 0)}</div>
+    </div>
+
+    <div class="section">
+      <h2>Men's Doubles · Fixture</h2>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Round-robin within each pool · 15 points · Top 2 per pool advance to Semis</div>
+      ${buildMatchRows("mens")}
+    </div>
+
+    <div class="section">
+      <h2>Mixed Doubles · Fixture</h2>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Round-robin within each pool · 15 points · Top 2 per pool advance to Semis</div>
+      ${buildMatchRows("mixed")}
+    </div>
+
+    <div class="section">
+      <h2>Women's Doubles · Fixture</h2>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Single round-robin (4 teams) · 15 points · Top 2 advance directly to Final</div>
+      ${buildMatchRows("womens")}
+    </div>
+
+    <div class="section">
+      <h2>Knockout Format</h2>
+      <p class="info-text">
+        <strong>Semi-finals (Men's &amp; Mixed):</strong> Top 2 from each pool · 21 points · single set<br>
+        <strong>Final (all formats):</strong> Best of 3 sets to 21 points<br>
+        <strong>Women's:</strong> No semis — top 2 round-robin finishers go straight to the final
+      </p>
+    </div>
+
+    <div class="footer">Bengaluru Trekkers · Badminton Tournament</div>
+  </main>
+</body>
+</html>`;
+}
+
+// Generate captain HTML — interactive form that submits pairs to Firebase
+function generateCaptainHTML(tid) {
+  const team = data.teams[tid];
+  // We embed the team roster data so the captain file is fully self-contained
+  // (it doesn't read from the organizer's Firebase, only writes to it)
+  const teamPayload = {
+    teamId: tid,
+    teamName: team.name,
+    teamColor: team.color,
+    players: team.players,
+    firebaseConfig: window.FIREBASE_CONFIG || null
+  };
+  const payloadStr = JSON.stringify(teamPayload).replace(/<\/script>/gi, '<\\/script>');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BT Badminton — Team ${team.name} · Captain Submission</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --surface: #14171c;
+    --surface-2: #1c2027;
+    --border: #2a2f38;
+    --text: #f4f5f7;
+    --muted: #8b919e;
+    --accent: #d4ff3a;
+    --win: #4ade80;
+    --warn: #ffb74d;
+    --err: #ff5e5e;
+    --team-color: ${team.color};
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    padding-bottom: 60px;
+  }
+  .banner {
+    background: linear-gradient(90deg, var(--team-color)dd, var(--team-color)33 60%, transparent);
+    padding: 28px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .team-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    letter-spacing: 3px;
+    color: #fff;
+    line-height: 1;
+  }
+  .tag {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 4px 10px;
+    background: rgba(0,0,0,0.5);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  main { max-width: 800px; margin: 0 auto; padding: 24px; }
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--team-color);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .h2-sub {
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 14px;
+  }
+  .player-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  @media (max-width: 480px) { .player-grid { grid-template-columns: 1fr; } }
+  .player-list-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 6px;
+  }
+  .player-row {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    padding: 2px 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .badge-A { background: rgba(212,255,58,0.15); color: var(--accent); }
+  .badge-I { background: rgba(77,208,225,0.15); color: #4dd0e1; }
+  .badge-B { background: rgba(186,104,200,0.15); color: #ba68c8; }
+  .pair-form { margin-top: 12px; }
+  .format-block { margin-bottom: 14px; }
+  .format-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .format-label .ok { color: var(--win); }
+  .format-label .warn { color: var(--warn); }
+  .pair-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  select.player-select {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    width: 100%;
+  }
+  select.player-select:focus { outline: 1px solid var(--team-color); }
+  select.player-select.dup { border-color: var(--err); background: rgba(255,94,94,0.08); }
+  .submit-bar {
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(to top, var(--bg) 60%, transparent);
+    padding: 24px;
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .submit-btn {
+    background: var(--team-color);
+    border: none;
+    color: #000;
+    padding: 16px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 3px;
+    cursor: pointer;
+    width: 100%;
+    font-weight: 700;
+  }
+  .submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .submit-btn.submitting { opacity: 0.6; }
+  .status-msg {
+    padding: 12px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-align: center;
+  }
+  .status-msg.ok { background: rgba(74,222,128,0.1); color: var(--win); border: 1px solid var(--win); }
+  .status-msg.err { background: rgba(255,94,94,0.1); color: var(--err); border: 1px solid var(--err); }
+  .status-msg.info { background: rgba(77,208,225,0.08); color: #4dd0e1; }
+  .last-saved {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 6px;
+  }
+  .footer {
+    text-align: center;
+    margin-top: 30px;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+  <div class="banner">
+    <div class="team-name">TEAM ${team.name.toUpperCase()}</div>
+    <div class="tag">Captain Submission · Pick Your Pairs</div>
+  </div>
+  <main>
+    <div class="section">
+      <h2>Your Squad</h2>
+      <div class="h2-sub">10 players · 6 men + 4 women</div>
+      <div class="player-grid" id="playerGrid"></div>
+    </div>
+
+    <div class="section">
+      <h2>Build Your Pairs</h2>
+      <div class="h2-sub">Each player can only play one format. Duplicates are highlighted in red.</div>
+      <div class="pair-form" id="pairForm"></div>
+    </div>
+
+    <div class="submit-bar">
+      <div id="statusMsg" style="display:none;"></div>
+      <button class="submit-btn" id="submitBtn">Submit Pairs</button>
+      <div class="last-saved" id="lastSaved"></div>
+    </div>
+
+    <div class="footer">Bengaluru Trekkers · Badminton Tournament</div>
+  </main>
+
+<script type="module">
+// ============= TEAM DATA (embedded by organizer) =============
+const TEAM = ${payloadStr};
+
+// ============= FIREBASE INIT =============
+// REPLACE with your project config — or organizer can pre-fill before generating
+const firebaseConfig = TEAM.firebaseConfig;
+
+let db = null;
+let firebaseReady = false;
+
+async function initFirebase() {
+  if (!firebaseConfig) {
+    showStatus("Firebase config missing — submission disabled. Contact organizer.", "err");
+    document.getElementById("submitBtn").disabled = true;
+    return;
+  }
+  try {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js");
+    const { getFirestore, doc, setDoc, getDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
+    const app = initializeApp(firebaseConfig);
+    db = getFirestore(app);
+    window._fb = { doc, setDoc, getDoc, serverTimestamp };
+    firebaseReady = true;
+    // Try to fetch any prior submission to prefill
+    await loadExistingSubmission();
+  } catch (e) {
+    console.error(e);
+    showStatus("Could not connect to Firebase. Check your internet.", "err");
+  }
+}
+
+async function loadExistingSubmission() {
+  try {
+    const ref = window._fb.doc(db, "tournament_submissions", TEAM.teamId);
+    const snap = await window._fb.getDoc(ref);
+    if (snap.exists()) {
+      const d = snap.data();
+      if (d.pairs) {
+        state.pairs = d.pairs;
+        renderForm();
+      }
+      if (d.lastUpdatedAt) {
+        const date = d.lastUpdatedAt.toDate ? d.lastUpdatedAt.toDate() : new Date(d.lastUpdatedAt);
+        document.getElementById("lastSaved").textContent = "Last submitted: " + date.toLocaleString();
+        showStatus("Existing submission loaded — edit and resubmit if needed.", "info");
+      }
+    }
+  } catch (e) {
+    console.warn("Could not load prior submission", e);
+  }
+}
+
+// ============= STATE =============
+const state = {
+  pairs: {
+    mens: [["", ""], ["", ""]],
+    mixed: [["", ""], ["", ""]],
+    womens: [["", ""]]
+  }
+};
+
+function showStatus(msg, type) {
+  const el = document.getElementById("statusMsg");
+  el.style.display = "block";
+  el.className = "status-msg " + (type || "info");
+  el.textContent = msg;
+}
+
+// ============= RENDER =============
+function renderRoster() {
+  const grid = document.getElementById("playerGrid");
+  const males = TEAM.players.filter(p => p.gender === "M");
+  const females = TEAM.players.filter(p => p.gender === "F");
+  grid.innerHTML = \`
+    <div>
+      <div class="player-list-label">Men · \${males.length}</div>
+      \${males.map((p, i) => \`
+        <div class="player-row">
+          <span>\${i+1}. \${p.name}</span>
+          <span class="badge badge-\${p.skill}">\${p.skill}</span>
+        </div>
+      \`).join("")}
+    </div>
+    <div>
+      <div class="player-list-label">Women · \${females.length}</div>
+      \${females.map((p, i) => \`
+        <div class="player-row">
+          <span>\${i+1}. \${p.name}</span>
+          <span class="badge badge-\${p.skill}">\${p.skill}</span>
+        </div>
+      \`).join("")}
+    </div>
+  \`;
+}
+
+function renderForm() {
+  const form = document.getElementById("pairForm");
+  const males = TEAM.players.filter(p => p.gender === "M").map(p => p.name);
+  const females = TEAM.players.filter(p => p.gender === "F").map(p => p.name);
+
+  // Tally usage to detect duplicates
+  const usage = {};
+  const tally = (n) => { if (n) usage[n] = (usage[n] || 0) + 1; };
+  state.pairs.mens.forEach(p => p.forEach(tally));
+  state.pairs.mixed.forEach(p => p.forEach(tally));
+  state.pairs.womens.forEach(p => p.forEach(tally));
+
+  const select = (val, opts, slot) => {
+    const isDup = val && usage[val] > 1;
+    return \`<select class="player-select \${isDup ? 'dup' : ''}" data-slot="\${slot}">
+      <option value="">— Select —</option>
+      \${opts.map(n => \`<option value="\${n}" \${val===n?'selected':''}>\${n}</option>\`).join("")}
+    </select>\`;
+  };
+
+  const allFilled = (arr) => arr.every(p => p[0] && p[1]);
+  const mensOk = allFilled(state.pairs.mens);
+  const mixedOk = allFilled(state.pairs.mixed);
+  const womensOk = allFilled(state.pairs.womens);
+  const noDupes = Object.values(usage).every(v => v <= 1);
+
+  form.innerHTML = \`
+    <div class="format-block">
+      <div class="format-label">Men's Doubles · 2 pairs <span class="\${mensOk?'ok':'warn'}">\${mensOk?'✓':'⋯'}</span></div>
+      \${state.pairs.mens.map((pair, i) => \`
+        <div class="pair-row">
+          \${select(pair[0], males, \`mens|\${i}|0\`)}
+          \${select(pair[1], males, \`mens|\${i}|1\`)}
+        </div>
+      \`).join("")}
+    </div>
+    <div class="format-block">
+      <div class="format-label">Mixed Doubles · 2 pairs (1M + 1F) <span class="\${mixedOk?'ok':'warn'}">\${mixedOk?'✓':'⋯'}</span></div>
+      \${state.pairs.mixed.map((pair, i) => \`
+        <div class="pair-row">
+          \${select(pair[0], males, \`mixed|\${i}|0\`)}
+          \${select(pair[1], females, \`mixed|\${i}|1\`)}
+        </div>
+      \`).join("")}
+    </div>
+    <div class="format-block">
+      <div class="format-label">Women's Doubles · 1 pair <span class="\${womensOk?'ok':'warn'}">\${womensOk?'✓':'⋯'}</span></div>
+      \${state.pairs.womens.map((pair, i) => \`
+        <div class="pair-row">
+          \${select(pair[0], females, \`womens|\${i}|0\`)}
+          \${select(pair[1], females, \`womens|\${i}|1\`)}
+        </div>
+      \`).join("")}
+    </div>
+  \`;
+
+  form.querySelectorAll("select.player-select").forEach(sel => {
+    sel.addEventListener("change", (e) => {
+      const [fmt, idx, slot] = e.target.dataset.slot.split("|");
+      state.pairs[fmt][parseInt(idx)][parseInt(slot)] = e.target.value;
+      renderForm();
+    });
+  });
+
+  const btn = document.getElementById("submitBtn");
+  const allOk = mensOk && mixedOk && womensOk && noDupes;
+  btn.disabled = !allOk || !firebaseReady;
+  btn.textContent = !noDupes ? "Resolve duplicates" :
+    (!allOk ? "Fill all pairs" : "Submit Pairs");
+}
+
+// ============= SUBMIT =============
+async function submitPairs() {
+  if (!firebaseReady) return;
+  const btn = document.getElementById("submitBtn");
+  btn.classList.add("submitting");
+  btn.disabled = true;
+  btn.textContent = "Submitting…";
+  try {
+    const ref = window._fb.doc(db, "tournament_submissions", TEAM.teamId);
+    await window._fb.setDoc(ref, {
+      teamId: TEAM.teamId,
+      teamName: TEAM.teamName,
+      pairs: state.pairs,
+      lastUpdatedAt: window._fb.serverTimestamp(),
+      version: 1
+    }, { merge: true });
+    showStatus("✓ Submitted successfully! Organizer has been notified.", "ok");
+    document.getElementById("lastSaved").textContent = "Last submitted: " + new Date().toLocaleString();
+    btn.textContent = "✓ Submitted (edit to resubmit)";
+    btn.classList.remove("submitting");
+  } catch (e) {
+    console.error(e);
+    showStatus("Submission failed: " + e.message, "err");
+    btn.textContent = "Try again";
+    btn.disabled = false;
+    btn.classList.remove("submitting");
+  }
+}
+
+document.getElementById("submitBtn").addEventListener("click", submitPairs);
+
+// ============= INIT =============
+renderRoster();
+renderForm();
+initFirebase();
+<\/script>
+</body>
+</html>`;
+}
+
+async function shareCaptainLink(tid) {
+  const team = data.teams[tid];
+  const captainLinkBox = document.getElementById("captainLinkBox");
+  const capBtn = document.getElementById("downloadCaptainBtn");
+
+  if (!window.FIREBASE_CONFIG) {
+    alert("⚠ Firebase config not set. Add your Firebase config to this file first.");
+    return;
+  }
+
+  capBtn.textContent = "Publishing…";
+  capBtn.disabled = true;
+
+  try {
+    // Push team roster to Firestore so the hosted captain page can read it
+    const { initializeApp, getApps } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js");
+    const { getFirestore, doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
+    const app = getApps().length ? getApps()[0] : initializeApp(window.FIREBASE_CONFIG);
+    const db = getFirestore(app);
+    await setDoc(doc(db, "tournament_teams", tid), {
+      teamId: tid,
+      teamName: team.name,
+      teamColor: team.color,
+      players: team.players
+    });
+
+    const link = `https://bengaluru-trekkers-ops.web.app/captain.html?team=${tid}`;
+    await navigator.clipboard.writeText(link);
+
+    captainLinkBox.style.display = "block";
+    captainLinkBox.textContent = link;
+    capBtn.textContent = "✓ Link copied!";
+    capBtn.classList.add("copied");
+    setTimeout(() => {
+      capBtn.textContent = "🔗 Copy Captain Link";
+      capBtn.classList.remove("copied");
+      capBtn.disabled = false;
+    }, 2500);
+  } catch (e) {
+    console.error(e);
+    alert("Failed to publish team: " + e.message);
+    capBtn.textContent = "🔗 Copy Captain Link";
+    capBtn.disabled = false;
+  }
+}
+
+function downloadTeamFile(tid) {
+  const team = data.teams[tid];
+  const html = generateTeamFixtureHTML(tid);
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `BT_Badminton_${team.name}_Fixture.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function previewTeamFile(tid) {
+  const html = generateTeamFixtureHTML(tid);
+  // Try open in new window via blob URL
+  try {
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, "_blank");
+    if (!w) {
+      // Pop-up blocked — fall back to inline preview
+      showInlinePreview(html);
+    }
+  } catch (e) {
+    showInlinePreview(html);
+  }
+}
+
+function showInlinePreview(html) {
+  // Opens preview in a fullscreen overlay (works inside sandboxed iframes)
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;inset:0;z-index:2000;background:#000;display:flex;flex-direction:column;";
+  overlay.innerHTML = `
+    <div style="background:#14171c;padding:12px 20px;border-bottom:1px solid #2a2f38;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#8b919e;text-transform:uppercase;letter-spacing:1.5px;">Preview — Team Fixture</span>
+      <button id="closePreview" style="background:transparent;border:1px solid #2a2f38;color:#f4f5f7;padding:6px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;">Close ✕</button>
+    </div>
+    <iframe srcdoc="${html.replace(/"/g, "&quot;")}" style="flex:1;border:0;width:100%;background:#0b0d10;"></iframe>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector("#closePreview").onclick = () => overlay.remove();
+}
+
+function openShareModal(tid) {
+  const team = data.teams[tid];
+  const modal = document.getElementById("shareModal");
+  const content = document.getElementById("shareModalContent");
+  content.style.setProperty("--team-color", team.color);
+  document.getElementById("shareModalTitle").textContent = `Share — Team ${team.name}`;
+  document.getElementById("captainLinkBox").style.display = "none";
+  document.getElementById("captainLinkBox").textContent = "";
+  modal.classList.add("show");
+
+  const capBtn = document.getElementById("downloadCaptainBtn");
+  const fixBtn = document.getElementById("downloadFixtureBtn");
+  const flash = (btn, text) => {
+    const old = btn.textContent;
+    btn.textContent = text;
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = old; btn.classList.remove("copied"); }, 2000);
+  };
+
+  capBtn.onclick = () => {
+    shareCaptainLink(tid);
+  };
+  fixBtn.onclick = () => {
+    downloadTeamFile(tid);
+    flash(fixBtn, "✓ Downloaded");
+  };
+  document.getElementById("closeModalBtn").onclick = () => modal.classList.remove("show");
+  modal.onclick = (e) => {
+    if (e.target === modal) modal.classList.remove("show");
+  };
+}
+
+// ============= READ-ONLY VIEW =============
+function checkReadOnlyMode() {
+  const hash = window.location.hash;
+  if (!hash || !hash.includes("t=")) return false;
+
+  const params = {};
+  hash.replace(/^#/, "").split("&").forEach(kv => {
+    const [k, v] = kv.split("=");
+    params[k] = decodeURIComponent(v || "");
+  });
+  if (!params.t || !params.d) return false;
+  const payload = decodePayload(params.d);
+  if (!payload || !payload.T || !payload.P) return false;
+  // Expand compact payload to a friendlier shape for rendering
+  const expanded = {
+    tid: payload.t,
+    teams: {},
+    pairs: {}
+  };
+  for (const [k, t] of Object.entries(payload.T)) {
+    expanded.teams[k] = {
+      name: t.n,
+      color: t.c,
+      players: t.p.map(arr => ({ name: arr[0], skill: arr[1], gender: arr[2] }))
+    };
+  }
+  for (const [k, p] of Object.entries(payload.P)) {
+    expanded.pairs[k] = { mens: p.m, mixed: p.x, womens: p.w };
+  }
+  renderReadOnlyView(expanded, params.t);
+  return true;
+}
+
+function getPairLabelFrom(payload, tid, format, pairIdx) {
+  const pair = payload.pairs[tid][format][pairIdx];
+  const team = payload.teams[tid];
+  if (!pair || !pair[0] || !pair[1]) return `${team.name} ${format} #${pairIdx+1} — TBD`;
+  return `${pair[0]} & ${pair[1]}`;
+}
+
+function renderReadOnlyView(payload, myTid) {
+  document.body.classList.add("readonly");
+  const team = payload.teams[myTid];
+  const main = document.querySelector("main");
+  const header = document.querySelector("header");
+
+  // Replace header
+  header.outerHTML = `
+    <div class="readonly-banner" style="--team-color:${team.color};background:linear-gradient(90deg,${team.color}cc,transparent)">
+      <div class="readonly-team-name">TEAM ${team.name.toUpperCase()}</div>
+      <div class="readonly-tag">Your fixture · BT Badminton Tournament</div>
+    </div>
+  `;
+
+  // Build sections
+  const males = team.players.filter(p => p.gender === "M");
+  const females = team.players.filter(p => p.gender === "F");
+
+  const otherTeams = Object.keys(payload.teams).filter(t => t !== myTid);
+
+  // Build all match-ups for each format from this team's perspective
+  const buildMensFixture = () => {
+    let html = "";
+    [0, 1].forEach(poolIdx => {
+      const poolName = poolIdx === 0 ? "A" : "B";
+      const myPair = getPairLabelFrom(payload, myTid, "mens", poolIdx);
+      html += `<div class="ro-pair-label" style="margin-top:10px;">Pool ${poolName} — Your Pair: <strong style="color:${team.color}">${myPair}</strong></div>`;
+      otherTeams.forEach(otid => {
+        const opp = getPairLabelFrom(payload, otid, "mens", poolIdx);
+        const oppTeam = payload.teams[otid];
+        html += `
+          <div class="ro-fixture-match own">
+            <div class="own-pair" style="color:${team.color}">${myPair}</div>
+            <div class="vs">vs · 15 PT</div>
+            <div><span class="team-dot" style="background:${oppTeam.color};display:inline-block;margin-right:6px;"></span>${opp} <small style="color:var(--muted)">(${oppTeam.name})</small></div>
+          </div>
+        `;
+      });
+    });
+    return html;
+  };
+
+  const buildMixedFixture = () => {
+    let html = "";
+    [0, 1].forEach(poolIdx => {
+      const poolName = poolIdx === 0 ? "A" : "B";
+      const myPair = getPairLabelFrom(payload, myTid, "mixed", poolIdx);
+      html += `<div class="ro-pair-label" style="margin-top:10px;">Pool ${poolName} — Your Pair: <strong style="color:${team.color}">${myPair}</strong></div>`;
+      otherTeams.forEach(otid => {
+        const opp = getPairLabelFrom(payload, otid, "mixed", poolIdx);
+        const oppTeam = payload.teams[otid];
+        html += `
+          <div class="ro-fixture-match own">
+            <div class="own-pair" style="color:${team.color}">${myPair}</div>
+            <div class="vs">vs · 15 PT</div>
+            <div><span class="team-dot" style="background:${oppTeam.color};display:inline-block;margin-right:6px;"></span>${opp} <small style="color:var(--muted)">(${oppTeam.name})</small></div>
+          </div>
+        `;
+      });
+    });
+    return html;
+  };
+
+  const buildWomensFixture = () => {
+    let html = "";
+    const myPair = getPairLabelFrom(payload, myTid, "womens", 0);
+    html += `<div class="ro-pair-label" style="margin-top:10px;">Round Robin — Your Pair: <strong style="color:${team.color}">${myPair}</strong></div>`;
+    otherTeams.forEach(otid => {
+      const opp = getPairLabelFrom(payload, otid, "womens", 0);
+      const oppTeam = payload.teams[otid];
+      html += `
+        <div class="ro-fixture-match own">
+          <div class="own-pair" style="color:${team.color}">${myPair}</div>
+          <div class="vs">vs · 15 PT</div>
+          <div><span class="team-dot" style="background:${oppTeam.color};display:inline-block;margin-right:6px;"></span>${opp} <small style="color:var(--muted)">(${oppTeam.name})</small></div>
+        </div>
+      `;
+    });
+    return html;
+  };
+
+  main.innerHTML = `
+    <div class="ro-section" style="--team-color:${team.color}">
+      <h3>Your Squad — ${team.players.length} Players</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div>
+          <div class="ro-pair-label">Men (${males.length})</div>
+          ${males.map((p, i) => `
+            <div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:14px;display:flex;justify-content:space-between;align-items:center;">
+              <span>${i+1}. ${p.name}</span>
+              <span class="badge badge-${p.skill}">${p.skill}</span>
+            </div>
+          `).join("")}
+        </div>
+        <div>
+          <div class="ro-pair-label">Women (${females.length})</div>
+          ${females.map((p, i) => `
+            <div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:14px;display:flex;justify-content:space-between;align-items:center;">
+              <span>${i+1}. ${p.name}</span>
+              <span class="badge badge-${p.skill}">${p.skill}</span>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+
+    <div class="ro-section" style="--team-color:${team.color}">
+      <h3>Your Pairs</h3>
+      <div class="ro-pair-label">Men's Doubles</div>
+      ${[0,1].map(i => `<div class="ro-pair">Pair ${i+1} — ${getPairLabelFrom(payload, myTid, "mens", i)}</div>`).join("")}
+      <div class="ro-pair-label" style="margin-top:14px;">Mixed Doubles</div>
+      ${[0,1].map(i => `<div class="ro-pair">Pair ${i+1} — ${getPairLabelFrom(payload, myTid, "mixed", i)}</div>`).join("")}
+      <div class="ro-pair-label" style="margin-top:14px;">Women's Doubles</div>
+      <div class="ro-pair">${getPairLabelFrom(payload, myTid, "womens", 0)}</div>
+    </div>
+
+    <div class="ro-section" style="--team-color:${team.color}">
+      <h3>Men's Doubles · Fixture</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Round-robin within each pool · 15 points · Top 2 per pool advance to Semis</div>
+      ${buildMensFixture()}
+    </div>
+
+    <div class="ro-section" style="--team-color:${team.color}">
+      <h3>Mixed Doubles · Fixture</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Round-robin within each pool · 15 points · Top 2 per pool advance to Semis</div>
+      ${buildMixedFixture()}
+    </div>
+
+    <div class="ro-section" style="--team-color:${team.color}">
+      <h3>Women's Doubles · Fixture</h3>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Single round-robin (4 teams) · 15 points · Top 2 advance directly to Final</div>
+      ${buildWomensFixture()}
+    </div>
+
+    <div class="ro-section" style="--team-color:${team.color}">
+      <h3>Knockout Format</h3>
+      <p style="font-size:13px;line-height:1.7;color:var(--text);">
+        <strong>Semi-finals (Men's & Mixed):</strong> Top 2 from each pool · 21 points · single set<br>
+        <strong>Final (all formats):</strong> Best of 3 sets to 21 points<br>
+        <strong>Women's:</strong> No semis — top 2 round-robin finishers go straight to the final
+      </p>
+    </div>
+  `;
+}
+// ============= FIREBASE INTEGRATION =============
+// Set window.FIREBASE_CONFIG = { ... } to enable. See FIREBASE_INTEGRATION.md for details.
+let firebaseDb = null;
+let firebaseSubscribed = false;
+const submissionsCache = {}; // tid -> { pairs, lastUpdatedAt, ... }
+
+async function initOrganizerFirebase() {
+  const cfg = window.FIREBASE_CONFIG;
+  const statusBox = document.getElementById("firebaseStatusBox");
+  if (!cfg) {
+    statusBox.style.display = "block";
+    statusBox.innerHTML = "⚠ <strong>Firebase not configured.</strong> Set <code>window.FIREBASE_CONFIG = {...}</code> in this file before captain submissions can sync. See FIREBASE_INTEGRATION.md.";
+    statusBox.style.borderLeftColor = "var(--charlie)";
+    statusBox.style.background = "rgba(255,183,77,0.05)";
+    return;
+  }
+  try {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js");
+    const { getFirestore, collection, onSnapshot } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
+    const app = initializeApp(cfg);
+    firebaseDb = getFirestore(app);
+    statusBox.style.display = "block";
+    statusBox.innerHTML = "🟢 Firebase connected — listening for live submissions.";
+    statusBox.style.borderLeftColor = "var(--win)";
+    statusBox.style.background = "rgba(74,222,128,0.05)";
+
+    // Listen to all submissions
+    const colRef = collection(firebaseDb, "tournament_submissions");
+    onSnapshot(colRef, (snap) => {
+      snap.forEach(doc => {
+        const d = doc.data();
+        // Normalize pairs from Firestore {p1,p2} objects back to [a,b] arrays
+        if (d.pairs) {
+          const expand = (fmt) => (fmt || []).map(p => Array.isArray(p) ? p : [p.p1 || "", p.p2 || ""]);
+          d.pairs = {
+            mens:   expand(d.pairs.mens),
+            mixed:  expand(d.pairs.mixed),
+            womens: expand(d.pairs.womens)
+          };
+        }
+        submissionsCache[doc.id] = d;
+      });
+      // Also handle deletes
+      const livingIds = new Set();
+      snap.forEach(doc => livingIds.add(doc.id));
+      Object.keys(submissionsCache).forEach(k => {
+        if (!livingIds.has(k)) delete submissionsCache[k];
+      });
+      firebaseSubscribed = true;
+      renderSubmissions();
+      updateSubmissionBadge();
+    }, (err) => {
+      console.error("Firebase listener error", err);
+      statusBox.innerHTML = "🔴 Firebase error: " + err.message;
+      statusBox.style.borderLeftColor = "var(--alpha)";
+    });
+  } catch (e) {
+    console.error(e);
+    statusBox.style.display = "block";
+    statusBox.innerHTML = "🔴 Failed to initialize Firebase: " + e.message;
+    statusBox.style.borderLeftColor = "var(--alpha)";
+  }
+}
+
+function updateSubmissionBadge() {
+  const badge = document.getElementById("submissionCountBadge");
+  const count = Object.keys(submissionsCache).length;
+  if (count > 0) {
+    badge.style.display = "inline-block";
+    badge.textContent = count;
+  } else {
+    badge.style.display = "none";
+  }
+}
+
+function renderSubmissions() {
+  const list = document.getElementById("submissionsList");
+  list.innerHTML = "";
+  for (const [tid, team] of Object.entries(data.teams)) {
+    const sub = submissionsCache[tid];
+    const card = document.createElement("div");
+    card.className = "sub-card" + (sub ? "" : " empty");
+    card.style.setProperty("--team-color", team.color);
+
+    const isSubmitted = !!sub;
+    let lastUpdated = "Never";
+    if (sub && sub.lastUpdatedAt) {
+      const d = sub.lastUpdatedAt.toDate ? sub.lastUpdatedAt.toDate() : new Date(sub.lastUpdatedAt);
+      lastUpdated = d.toLocaleString();
+    }
+
+    const pairLine = (p) => {
+      if (!p[0] && !p[1]) return `<div class="sub-pair-line tbd">— Not selected —</div>`;
+      return `<div class="sub-pair-line">${p[0] || '?'} &amp; ${p[1] || '?'}</div>`;
+    };
+
+    let pairsHtml = "";
+    if (isSubmitted) {
+      pairsHtml = `
+        <div class="sub-pairs">
+          <div class="sub-format">
+            <div class="sub-format-label">Men's Doubles</div>
+            ${sub.pairs.mens.map(pairLine).join("")}
+          </div>
+          <div class="sub-format">
+            <div class="sub-format-label">Mixed Doubles</div>
+            ${sub.pairs.mixed.map(pairLine).join("")}
+          </div>
+          <div class="sub-format">
+            <div class="sub-format-label">Women's Doubles</div>
+            ${sub.pairs.womens.map(pairLine).join("")}
+          </div>
+        </div>
+      `;
+    } else {
+      pairsHtml = `<div style="color:var(--muted);font-size:13px;font-style:italic;margin-bottom:14px;">No submission received yet from this team's captain.</div>`;
+    }
+
+    // Detect diff vs current pair builder state
+    let diffHint = "";
+    if (isSubmitted) {
+      const cur = data.pairs[tid];
+      const same = JSON.stringify(cur) === JSON.stringify(sub.pairs);
+      diffHint = same
+        ? `<span class="sub-status submitted">SYNCED</span>`
+        : `<span class="sub-status draft">PENDING SYNC</span>`;
+    } else {
+      diffHint = `<span class="sub-status none">NOT SUBMITTED</span>`;
+    }
+
+    card.innerHTML = `
+      <div class="sub-header">
+        <div>
+          <div class="sub-team">${team.name}</div>
+          <div class="sub-meta">Last update: ${lastUpdated}</div>
+        </div>
+        <div>${diffHint}</div>
+      </div>
+      ${pairsHtml}
+      ${isSubmitted ? `
+        <div class="sub-actions">
+          <button class="sub-btn" data-action="apply" data-tid="${tid}">⬇ Use these pairs</button>
+          <button class="sub-btn secondary danger" data-action="clear" data-tid="${tid}">Clear current builder</button>
+        </div>
+      ` : ""}
+    `;
+    list.appendChild(card);
+  }
+
+  list.querySelectorAll("button[data-action]").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const action = e.currentTarget.dataset.action;
+      const tid = e.currentTarget.dataset.tid;
+      if (action === "apply") {
+        const sub = submissionsCache[tid];
+        if (!sub || !sub.pairs) return;
+        // Deep copy
+        data.pairs[tid] = JSON.parse(JSON.stringify(sub.pairs));
+        saveData();
+        renderAll();
+        alert(`✓ ${data.teams[tid].name}'s submitted pairs applied to the Pair Builder.`);
+      } else if (action === "clear") {
+        if (confirm(`Clear ${data.teams[tid].name}'s current pairs in the Pair Builder?`)) {
+          data.pairs[tid] = { mens: [["",""],["",""]], mixed: [["",""],["",""]], womens: [["",""]] };
+          saveData();
+          renderAll();
+        }
+      }
+    });
+  });
+}
+
+function renderAll() {
+  renderRosters();
+  renderPairBuilder();
+  renderMensPools();
+  renderMixedPools();
+  renderWomensPool();
+  renderKnockouts();
+  renderSubmissions();
+}
+
+renderAll();
+initOrganizerFirebase();
+</script>
+</body>
+</html>

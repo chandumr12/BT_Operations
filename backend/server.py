@@ -24,6 +24,14 @@ import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth, firestore
 from openpyxl import Workbook, load_workbook
 
+from trek_watcher_api import (
+    DISTRICTS as WATCHER_DISTRICTS,
+    active_watchers,
+    watcher_config,
+    fetch_treks_for_district,
+    run_watcher,
+)
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
@@ -264,6 +272,17 @@ class TicketUpdate(BaseModel):
     estimatedHours: Optional[int] = None
     labels: Optional[List[str]] = None
     attachments: Optional[List[dict]] = None
+
+class StartWatcherRequest(BaseModel):
+    district_id: str
+    trek_id: str
+    trek_name: str
+    date: str           # DD-MM-YYYY
+    duration_hours: float = 2.0
+    interval_secs: int  = 60
+
+class WatcherSettingsUpdate(BaseModel):
+    notify_numbers: List[str]
 
 # Firestore helper — wraps any blocking Firestore call with a timeout.
 # Returns `default` on timeout/error so endpoints degrade gracefully locally.
@@ -770,6 +789,180 @@ async def delete_team_member(member_id: str, user: dict = Depends(get_current_us
     if user.get('role') not in ['Super Admin', 'Operations Manager']:
         raise HTTPException(status_code=403, detail="Admins only")
     db.collection('team_members').document(member_id).delete()
+    return {'message': 'Deleted'}
+
+# Lead Performance Analytics
+@api_router.get("/analytics/lead-performance")
+async def lead_performance(user: dict = Depends(get_current_user)):
+    if user.get('role') not in ['Super Admin', 'Operations Manager']:
+        raise HTTPException(status_code=403, detail="Admins only")
+    if not db:
+        return []
+
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    thirty_days_ago = now - timedelta(days=30)
+
+    # Fetch all batches
+    all_batches = await fs_run(lambda: list(db.collection('batches').stream()), default=[])
+
+    # Aggregate per lead
+    lead_map = {}  # userId -> stats dict
+
+    for batch_doc in all_batches:
+        b = batch_doc.to_dict()
+        b['id'] = batch_doc.id
+        assigned = b.get('assignedLeads', [])
+        trek_name = b.get('trekName', b.get('trek_name', ''))
+        trek_id   = b.get('trekId', '')
+        raw_status = (b.get('status') or 'upcoming').lower()
+        if raw_status in ('completed', 'closed', 'done', 'finished'):
+            status = 'completed'
+        elif raw_status in ('ongoing', 'active', 'in progress', 'open'):
+            status = 'ongoing'
+        else:
+            status = 'upcoming'
+        batch_date_raw = b.get('startDate') or b.get('date') or ''
+        # parse batch date
+        batch_date = None
+        if batch_date_raw:
+            try:
+                batch_date = datetime.fromisoformat(batch_date_raw.replace('Z', '+00:00'))
+                if batch_date.tzinfo is None:
+                    batch_date = batch_date.replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+
+        for lead in assigned:
+            uid  = lead.get('userId', '')
+            name = lead.get('displayName', 'Unknown')
+            if not uid:
+                continue
+            if uid not in lead_map:
+                lead_map[uid] = {
+                    'userId': uid,
+                    'displayName': name,
+                    'isSuperLead': lead.get('isSuperLead', False),
+                    'totalBatches': 0,
+                    'completedBatches': 0,
+                    'upcomingBatches': 0,
+                    'ongoingBatches': 0,
+                    'trekSet': set(),
+                    'lastBatchDate': None,
+                    'recentBatches': [],
+                }
+            stats = lead_map[uid]
+            stats['totalBatches'] += 1
+            stats['trekSet'].add(trek_id or trek_name)
+            if status == 'completed':
+                stats['completedBatches'] += 1
+            elif status == 'ongoing':
+                stats['ongoingBatches'] += 1
+            else:
+                stats['upcomingBatches'] += 1
+
+            if batch_date:
+                if stats['lastBatchDate'] is None or batch_date > stats['lastBatchDate']:
+                    stats['lastBatchDate'] = batch_date
+
+            stats['recentBatches'].append({
+                'id': b['id'],
+                'trekName': trek_name,
+                'status': status,
+                'startDate': batch_date_raw,
+            })
+
+    # Fetch all users with Trek Lead role for inactive detection
+    all_users = await fs_run(lambda: list(db.collection('users').stream()), default=[])
+    lead_users = [
+        {**u.to_dict(), 'uid': u.id}
+        for u in all_users
+        if u.to_dict().get('role') == 'Trek Lead' and u.to_dict().get('status') == 'approved'
+    ]
+
+    result = []
+    for lu in lead_users:
+        uid = lu['uid']
+        stats = lead_map.get(uid, {
+            'userId': uid,
+            'displayName': lu.get('displayName', lu.get('email', 'Unknown')),
+            'isSuperLead': False,
+            'totalBatches': 0,
+            'completedBatches': 0,
+            'upcomingBatches': 0,
+            'ongoingBatches': 0,
+            'trekSet': set(),
+            'lastBatchDate': None,
+            'recentBatches': [],
+        })
+
+        last_date = stats['lastBatchDate']
+        inactive = last_date is None or last_date < thirty_days_ago
+
+        result.append({
+            'userId': uid,
+            'displayName': stats['displayName'],
+            'email': lu.get('email', ''),
+            'phone': lu.get('phone', ''),
+            'totalBatches': stats['totalBatches'],
+            'completedBatches': stats['completedBatches'],
+            'upcomingBatches': stats['upcomingBatches'],
+            'ongoingBatches': stats['ongoingBatches'],
+            'uniqueTreks': len(stats['trekSet']),
+            'lastBatchDate': last_date.isoformat() if last_date else None,
+            'inactive': inactive,
+            'recentBatches': sorted(
+                stats['recentBatches'],
+                key=lambda x: x.get('startDate', ''),
+                reverse=True
+            )[:5],
+        })
+
+    # Sort by completed batches desc
+    result.sort(key=lambda x: x['completedBatches'], reverse=True)
+    return result
+
+# ── Hotel Stays ──────────────────────────────────────────────────────────────
+
+@api_router.get("/hotel-stays")
+async def list_hotel_stays(place: Optional[str] = None):
+    """Public endpoint — no auth required. Returns stays filtered by place."""
+    if not db:
+        return []
+    ref = db.collection('hotel_stays')
+    docs = await fs_run(lambda: list(ref.stream()), default=[])
+    result = []
+    for d in docs:
+        item = {**d.to_dict(), 'id': d.id}
+        if place and item.get('place', '').lower().replace('/', '-').replace(' ', '-') != place.lower():
+            continue
+        result.append(item)
+    # Sort by date then serial
+    result.sort(key=lambda x: (x.get('date', ''), x.get('serial', 0)))
+    return result
+
+@api_router.post("/hotel-stays")
+async def create_hotel_stay(data: dict, user: dict = Depends(get_current_user)):
+    if user.get('role') not in ['Super Admin', 'Operations Manager']:
+        raise HTTPException(status_code=403, detail="Admins only")
+    data['createdAt'] = datetime.now(timezone.utc).isoformat()
+    data['updatedAt'] = data['createdAt']
+    ref = db.collection('hotel_stays').add(data)
+    return {'id': ref[1].id, **data}
+
+@api_router.patch("/hotel-stays/{stay_id}")
+async def update_hotel_stay(stay_id: str, data: dict, user: dict = Depends(get_current_user)):
+    if user.get('role') not in ['Super Admin', 'Operations Manager']:
+        raise HTTPException(status_code=403, detail="Admins only")
+    data['updatedAt'] = datetime.now(timezone.utc).isoformat()
+    db.collection('hotel_stays').document(stay_id).update(data)
+    return {'message': 'Updated', 'id': stay_id}
+
+@api_router.delete("/hotel-stays/{stay_id}")
+async def delete_hotel_stay(stay_id: str, user: dict = Depends(get_current_user)):
+    if user.get('role') not in ['Super Admin', 'Operations Manager']:
+        raise HTTPException(status_code=403, detail="Admins only")
+    db.collection('hotel_stays').document(stay_id).delete()
     return {'message': 'Deleted'}
 
 # Notification Routes
@@ -2060,6 +2253,610 @@ async def get_all_vouchers(admin: dict = Depends(require_admin)):
         return []
     return [d.to_dict() for d in docs]
 
+# ── Google Drive: create batch photo folder ───────────────────────────────────
+from googleapiclient.discovery import build as gdrive_build
+from google.oauth2 import service_account as gsa
+
+def _get_drive_service():
+    scopes = ['https://www.googleapis.com/auth/drive']
+    firebase_key_base64 = os.getenv("FIREBASE_KEY_BASE64")
+    if firebase_key_base64:
+        info = json.loads(base64.b64decode(firebase_key_base64).decode("utf-8"))
+    else:
+        cred_path = os.getenv("FIREBASE_CREDENTIALS_PATH", str(ROOT_DIR / "firebase-admin.json"))
+        with open(cred_path) as f:
+            info = json.load(f)
+    creds = gsa.Credentials.from_service_account_info(info, scopes=scopes)
+    return gdrive_build('drive', 'v3', credentials=creds)
+
+class DriveFolder(BaseModel):
+    batch_label: str  # e.g. "C-3 Chardham Apr 2025"
+    parent_folder_id: Optional[str] = None  # optional: nest inside a parent folder
+
+@api_router.post("/create-drive-folder")
+async def create_drive_folder(data: DriveFolder, user: dict = Depends(get_current_user)):
+    if user.get('role') not in ('Super Admin', 'Operations Manager', 'Trek Lead', 'Coordinator'):
+        raise HTTPException(status_code=403, detail="Access denied")
+    try:
+        service = _get_drive_service()
+        meta = {
+            'name': data.batch_label,
+            'mimeType': 'application/vnd.google-apps.folder',
+        }
+        if data.parent_folder_id:
+            meta['parents'] = [data.parent_folder_id]
+        folder = service.files().create(body=meta, fields='id, webViewLink').execute()
+        folder_id = folder['id']
+        # Make it so anyone with the link can upload (writer)
+        service.permissions().create(
+            fileId=folder_id,
+            body={'type': 'anyone', 'role': 'writer'},
+        ).execute()
+        return {'folderId': folder_id, 'folderUrl': folder['webViewLink']}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ── Trek Ticket Watcher ──────────────────────────────────────────────────────
+
+WATCHER_ROLES = {"Super Admin", "Operations Manager"}
+
+def _watcher_auth(user: dict):
+    if user.get("role") not in WATCHER_ROLES:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+WATCHER_SETTINGS_DOC = "trek_watcher_config"
+
+@api_router.get("/trek-watcher/settings")
+async def watcher_get_settings(user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    if not db:
+        return {"notify_numbers": watcher_config["notify_numbers"]}
+    doc = await fs_run(lambda: db.collection("settings").document(WATCHER_SETTINGS_DOC).get())
+    data = doc.to_dict() if doc and doc.exists else {}
+    numbers = data.get("notify_numbers", [])
+    watcher_config["notify_numbers"] = numbers
+    return {"notify_numbers": numbers}
+
+@api_router.put("/trek-watcher/settings")
+async def watcher_save_settings(req: WatcherSettingsUpdate, user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    numbers = req.notify_numbers[:5]   # cap at 5
+    watcher_config["notify_numbers"] = numbers
+    if db:
+        await fs_run(lambda: db.collection("settings").document(WATCHER_SETTINGS_DOC).set(
+            {"notify_numbers": numbers}, merge=True
+        ))
+    return {"notify_numbers": numbers}
+
+@api_router.get("/trek-watcher/districts")
+async def watcher_districts(user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    return WATCHER_DISTRICTS
+
+@api_router.get("/trek-watcher/treks/{district_id}")
+async def watcher_treks(district_id: str, user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    loop = asyncio.get_running_loop()
+    treks = await asyncio.wait_for(
+        loop.run_in_executor(None, lambda: fetch_treks_for_district(district_id)),
+        timeout=30.0,
+    )
+    return treks
+
+@api_router.post("/trek-watcher/start")
+async def watcher_start(req: StartWatcherRequest, user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    job_id = str(uuid.uuid4())[:8]
+    duration_secs = int(req.duration_hours * 3600)
+    active_watchers[job_id] = {
+        "job_id":        job_id,
+        "trek_name":     req.trek_name,
+        "date":          req.date,
+        "interval":      req.interval_secs,
+        "duration_hours": req.duration_hours,
+        "started_at":    datetime.now(timezone.utc).isoformat(),
+        "status":        "starting",
+        "checks":        0,
+        "available":     False,
+        "last_info":     "",
+        "last_checked":  None,
+        "started_by":    user.get("displayName", user.get("email", "")),
+    }
+    task = asyncio.create_task(
+        run_watcher(job_id, req.district_id, req.trek_id, req.date, duration_secs, req.interval_secs, db=db)
+    )
+    active_watchers[job_id]["_task"] = task
+    return {"job_id": job_id}
+
+@api_router.get("/trek-watcher/status")
+async def watcher_status(user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    # Load Firestore history so data survives redeploys / cross-instance
+    history = {}
+    if db:
+        docs = await fs_run(lambda: list(db.collection("trek_watcher_history").stream()), default=[])
+        if docs:
+            for doc in docs:
+                history[doc.id] = doc.to_dict()
+    # Active in-memory watchers override Firestore history for same job_id
+    merged = {**history}
+    for job_id, w in active_watchers.items():
+        merged[job_id] = {k: v for k, v in w.items() if k != "_task"}
+    result = sorted(merged.values(), key=lambda x: x.get("started_at", ""), reverse=True)
+    return result
+
+@api_router.get("/trek-watcher/last-alert")
+async def watcher_last_alert(user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    if not db:
+        return None
+    doc = await fs_run(lambda: db.collection("settings").document("last_trek_alert").get())
+    if doc and doc.exists:
+        return doc.to_dict()
+    return None
+
+@api_router.post("/trek-watcher/test-whatsapp")
+async def watcher_test_whatsapp(user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    from whatsapp import send_trek_alert_all
+    from trek_watcher_api import _fetch_notify_numbers
+    loop    = asyncio.get_running_loop()
+    numbers = await _fetch_notify_numbers(db, loop)
+    if not numbers:
+        raise HTTPException(status_code=400, detail="No notify numbers saved. Add and save numbers first.")
+    await loop.run_in_executor(
+        None,
+        lambda: send_trek_alert_all(numbers, "Nethravathi Trek", "10-06-2026", "5/300 slots open"),
+    )
+    return {"sent_to": numbers}
+
+@api_router.delete("/trek-watcher/history/{job_id}")
+async def watcher_delete_history(job_id: str, user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    # Cancel + remove from memory if running
+    if job_id in active_watchers:
+        active_watchers[job_id]["status"] = "stopped"
+        task = active_watchers[job_id].get("_task")
+        if task and not task.done():
+            task.cancel()
+        del active_watchers[job_id]
+    # Remove from Firestore history
+    if db:
+        await fs_run(lambda: db.collection("trek_watcher_history").document(job_id).delete())
+    return {"ok": True}
+
+@api_router.delete("/trek-watcher/stop/{job_id}")
+async def watcher_stop(job_id: str, user: dict = Depends(get_current_user)):
+    _watcher_auth(user)
+    if job_id in active_watchers:
+        # Running on this instance — cancel the asyncio task
+        active_watchers[job_id]["status"] = "stopped"
+        task = active_watchers[job_id].get("_task")
+        if task and not task.done():
+            task.cancel()
+        if db:
+            from trek_watcher_api import _save_watcher_history
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, lambda: _save_watcher_history(db, job_id))
+    elif db:
+        # Not in memory — watcher ran on a different instance or previous deploy
+        # Update Firestore history record directly
+        def _stop_in_fs():
+            doc = db.collection("trek_watcher_history").document(job_id).get()
+            if not doc.exists:
+                return False
+            db.collection("trek_watcher_history").document(job_id).update({"status": "stopped"})
+            return True
+        found = await fs_run(_stop_in_fs, default=False)
+        if not found:
+            raise HTTPException(status_code=404, detail="Watcher not found")
+    else:
+        raise HTTPException(status_code=404, detail="Watcher not found")
+    return {"ok": True}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Lead Availability System
+# ─────────────────────────────────────────────────────────────────────────────
+
+AVAILABILITY_CONFIG_DOC = "availability_config"
+
+class AvailabilityUpsert(BaseModel):
+    month: str
+    selectedSlotIds: List[str] = []   # IDs of availability_slots the lead chose
+
+class AvailabilityConfigUpdate(BaseModel):
+    showTrekNames: Optional[bool] = None
+    activeMonth: Optional[str] = None   # YYYY-MM (legacy single-month, kept for compat)
+    activeMonths: Optional[List[str]] = None  # up to 2 YYYY-MM strings
+
+class AvailabilitySlotCreate(BaseModel):
+    month: str                         # YYYY-MM
+    week: int                          # 1-4
+    category: str                      # weekday | weekend | himalayan
+    deptDate: str                      # YYYY-MM-DD
+    returnDate: str                    # YYYY-MM-DD
+    trekName: Optional[str] = None     # if None → show "TREK" to leads
+
+class AvailabilitySlotUpdate(BaseModel):
+    category: Optional[str] = None
+    week: Optional[int] = None
+    deptDate: Optional[str] = None
+    returnDate: Optional[str] = None
+    trekName: Optional[str] = None
+
+
+def _batch_category(batch_data: dict, trek_category: str = "") -> str:
+    """Return 'himalayan' | 'weekend' | 'weekday' for a batch."""
+    if batch_data.get("trekCategory"):
+        return batch_data["trekCategory"]
+    if trek_category.lower() == "himalayan":
+        return "himalayan"
+    try:
+        start = datetime.fromisoformat(batch_data["startDate"])
+        end   = datetime.fromisoformat(batch_data["endDate"])
+        if (end - start).days + 1 > 4:
+            return "himalayan"
+        if start.weekday() in (3, 4, 5, 6):  # Thu/Fri/Sat/Sun departure
+            return "weekend"
+    except Exception:
+        pass
+    return "weekday"
+
+
+# ── Slot CRUD ────────────────────────────────────────────────────────────────
+
+@api_router.get("/availability/slots")
+async def get_availability_slots(
+    month: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    if not db:
+        return []
+    if not month:
+        cfg_doc = await fs_run(lambda: db.collection("settings").document(AVAILABILITY_CONFIG_DOC).get())
+        cfg = cfg_doc.to_dict() if cfg_doc and cfg_doc.exists else {}
+        month = cfg.get("activeMonth", datetime.now().strftime("%Y-%m"))
+    docs = await fs_run(
+        lambda: list(db.collection("availability_slots").where("month", "==", month).stream()),
+        default=[],
+    )
+    slots = []
+    for d in docs:
+        slot = d.to_dict()
+        slot["id"] = d.id
+        slots.append(slot)
+    slots.sort(key=lambda s: (s.get("week", 0), s.get("category", ""), s.get("deptDate", "")))
+    return slots
+
+
+@api_router.post("/availability/slots")
+async def create_availability_slot(
+    slot: AvailabilitySlotCreate,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    data = slot.model_dump()
+    data["createdAt"] = datetime.now(timezone.utc).isoformat()
+    data["createdBy"] = user["uid"]
+    doc_ref = db.collection("availability_slots").document()
+    doc_ref.set(data)
+    data["id"] = doc_ref.id
+    return data
+
+
+@api_router.patch("/availability/slots/{slot_id}")
+async def update_availability_slot(
+    slot_id: str,
+    update: AvailabilitySlotUpdate,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    patch = {k: v for k, v in update.model_dump().items() if v is not None}
+    patch["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    db.collection("availability_slots").document(slot_id).update(patch)
+    return {"ok": True}
+
+
+@api_router.delete("/availability/slots/{slot_id}")
+async def delete_availability_slot(
+    slot_id: str,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    db.collection("availability_slots").document(slot_id).delete()
+    return {"ok": True}
+
+
+# ── Config ────────────────────────────────────────────────────────────────────
+
+@api_router.get("/availability/config")
+async def get_availability_config(user: dict = Depends(get_current_user)):
+    now_month = datetime.now().strftime("%Y-%m")
+    if not db:
+        return {"showTrekNames": True, "activeMonths": [now_month]}
+    doc = await fs_run(
+        lambda: db.collection("settings").document(AVAILABILITY_CONFIG_DOC).get()
+    )
+    cfg = (doc.to_dict() if doc and doc.exists else {}) or {}
+    # Backcompat: migrate single activeMonth → activeMonths list
+    if "activeMonths" not in cfg:
+        cfg["activeMonths"] = [cfg.get("activeMonth", now_month)]
+    if not cfg["activeMonths"]:
+        cfg["activeMonths"] = [now_month]
+    return cfg
+
+
+@api_router.put("/availability/config")
+async def update_availability_config(
+    body: AvailabilityConfigUpdate,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    patch: dict = {}
+    if body.showTrekNames is not None:
+        patch["showTrekNames"] = body.showTrekNames
+    if body.activeMonths is not None:
+        months = list(dict.fromkeys(body.activeMonths))[:2]  # dedupe, max 2
+        patch["activeMonths"] = months
+        if months:
+            patch["activeMonth"] = months[0]  # keep legacy field in sync
+    elif body.activeMonth is not None:
+        patch["activeMonth"] = body.activeMonth
+        patch["activeMonths"] = [body.activeMonth]
+    if not patch:
+        return {"ok": True}
+    db.collection("settings").document(AVAILABILITY_CONFIG_DOC).set(patch, merge=True)
+    return {"ok": True}
+
+
+@api_router.get("/availability/batches")
+async def get_availability_batches(
+    month: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Return batches for the active (or given) month, enriched with category.
+    Trek names are masked based on config when the caller is a Trek Lead."""
+    if not db:
+        return []
+
+    # Load config
+    cfg_doc = await fs_run(
+        lambda: db.collection("settings").document(AVAILABILITY_CONFIG_DOC).get()
+    )
+    cfg = cfg_doc.to_dict() if cfg_doc and cfg_doc.exists else {}
+    active_month = month or cfg.get("activeMonth", datetime.now().strftime("%Y-%m"))
+    show_trek_names = cfg.get("showTrekNames", True)
+    is_ops = user.get("role") in ["Super Admin", "Operations Manager"]
+
+    # Fetch all batches, filter by month
+    all_batches = await fs_run(lambda: list(db.collection("batches").stream()), default=[])
+
+    # Bulk-load treks
+    trek_cache: dict = {}
+
+    result = []
+    for doc in all_batches:
+        data = doc.to_dict()
+        data["id"] = doc.id
+
+        start = data.get("startDate", "")
+        if not start or not start.startswith(active_month):
+            continue
+
+        # Trek info
+        tid = data.get("trekId", "")
+        if tid and tid not in trek_cache:
+            tdoc = await fs_run(lambda t=tid: db.collection("treks").document(t).get())
+            trek_cache[tid] = tdoc.to_dict() if tdoc and tdoc.exists else {}
+        trek_info = trek_cache.get(tid, {})
+
+        category = _batch_category(data, trek_info.get("category", ""))
+        data["category"] = category
+
+        # Mask trek name for leads when showTrekNames is False
+        if not is_ops and not show_trek_names:
+            label = {"weekend": "Weekend Trek", "himalayan": "Himalayan Trek"}.get(
+                category, "Weekday Trek"
+            )
+            try:
+                s = datetime.fromisoformat(start).strftime("%-d %b")
+                e = datetime.fromisoformat(data.get("endDate", start)).strftime("%-d %b")
+                data["displayName"] = f"{label} — {s} → {e}"
+            except Exception:
+                data["displayName"] = label
+            data.pop("trekId", None)
+        else:
+            data["trekName"] = trek_info.get("name", "")
+            data["displayName"] = trek_info.get("name", data.get("batchCode", ""))
+
+        result.append(data)
+
+    result.sort(key=lambda b: b.get("startDate", ""))
+    return result
+
+
+@api_router.get("/availability")
+async def get_my_availability(
+    month: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Return the current user's availability record for the given (or active) month."""
+    if not db:
+        return {}
+    target_month = month
+    if not target_month:
+        cfg_doc = await fs_run(
+            lambda: db.collection("settings").document(AVAILABILITY_CONFIG_DOC).get()
+        )
+        cfg = cfg_doc.to_dict() if cfg_doc and cfg_doc.exists else {}
+        target_month = cfg.get("activeMonth", datetime.now().strftime("%Y-%m"))
+
+    doc_id = f"{user['uid']}_{target_month}"
+    doc = await fs_run(
+        lambda: db.collection("lead_availability").document(doc_id).get()
+    )
+    if doc and doc.exists:
+        return doc.to_dict()
+    return {"month": target_month, "selectedSlotIds": []}
+
+
+@api_router.post("/availability")
+async def upsert_my_availability(
+    body: AvailabilityUpsert,
+    user: dict = Depends(get_current_user),
+):
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+
+    # Get lead gender from users/leads collection (best effort)
+    gender = "Unknown"
+    user_doc = await fs_run(lambda: db.collection("users").document(user["uid"]).get())
+    if user_doc and user_doc.exists:
+        gender = user_doc.to_dict().get("gender", "Unknown")
+    if gender == "Unknown":
+        lead_docs = await fs_run(
+            lambda: list(db.collection("leads").where("userId", "==", user["uid"]).limit(1).stream()),
+            default=[],
+        )
+        if lead_docs:
+            gender = lead_docs[0].to_dict().get("gender", "Unknown")
+
+    doc_id = f"{user['uid']}_{body.month}"
+    record = {
+        "leadId": user["uid"],
+        "displayName": user.get("displayName", ""),
+        "gender": gender,
+        "month": body.month,
+        "selectedSlotIds": body.selectedSlotIds,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    db.collection("lead_availability").document(doc_id).set(record)
+    return {"ok": True, "docId": doc_id}
+
+
+@api_router.get("/availability/all")
+async def get_all_availability(
+    month: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """Return all leads' availability for the given (or active) month."""
+    if not db:
+        return []
+
+    target_month = month
+    if not target_month:
+        cfg_doc = await fs_run(
+            lambda: db.collection("settings").document(AVAILABILITY_CONFIG_DOC).get()
+        )
+        cfg = cfg_doc.to_dict() if cfg_doc and cfg_doc.exists else {}
+        target_month = cfg.get("activeMonth", datetime.now().strftime("%Y-%m"))
+
+    docs = await fs_run(
+        lambda: list(
+            db.collection("lead_availability").where("month", "==", target_month).stream()
+        ),
+        default=[],
+    )
+    return [d.to_dict() for d in docs]
+
+
+@api_router.post("/availability/cancel-notice")
+async def send_cancellation_notice(
+    body: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Lead sends a cancellation warning — notifies all Ops Managers / Admins."""
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+
+    batch_id   = body.get("batchId", "")
+    batch_code = body.get("batchCode", "")
+    reason     = body.get("reason", "")
+    lead_name  = user.get("displayName", "Unknown")
+
+    # Fetch all ops managers and admins to notify
+    ops_users = await fs_run(
+        lambda: list(
+            db.collection("users")
+            .where("role", "in", ["Super Admin", "Operations Manager"])
+            .stream()
+        ),
+        default=[],
+    )
+    for ops_user in ops_users:
+        db.collection("notifications").add({
+            "userId": ops_user.id,
+            "type": "availability_cancel",
+            "title": f"⚠️ Lead Cancellation: {lead_name}",
+            "message": (
+                f"{lead_name} has cancelled their availability"
+                + (f" for batch {batch_code}" if batch_code else "")
+                + (f". Reason: {reason}" if reason else ".")
+            ),
+            "batchId": batch_id,
+            "read": False,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "createdBy": user["uid"],
+        })
+    return {"ok": True, "notified": len(ops_users)}
+
+
+@api_router.get("/availability/leads-for-batch/{batch_id}")
+async def get_leads_for_batch(
+    batch_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Return leads whose availability matches the batch category/month. Ops/Admin only."""
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        return []
+
+    batch_doc = await fs_run(lambda: db.collection("batches").document(batch_id).get())
+    if not batch_doc or not batch_doc.exists:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    batch_data = batch_doc.to_dict()
+
+    tid = batch_data.get("trekId", "")
+    trek_cat = ""
+    if tid:
+        tdoc = await fs_run(lambda t=tid: db.collection("treks").document(t).get())
+        if tdoc and tdoc.exists:
+            trek_cat = tdoc.to_dict().get("category", "")
+
+    category = _batch_category(batch_data, trek_cat)
+    month = batch_data.get("startDate", "")[:7]  # YYYY-MM
+
+    avail_docs = await fs_run(
+        lambda: list(
+            db.collection("lead_availability").where("month", "==", month).stream()
+        ),
+        default=[],
+    )
+    matched = []
+    for d in avail_docs:
+        av = d.to_dict()
+        if category == "weekend" and av.get("weekendAvailable"):
+            matched.append(av)
+        elif category == "himalayan" and av.get("himalayanAvailable"):
+            matched.append(av)
+        elif category == "weekday" and batch_id in av.get("weekdayBatchIds", []):
+            matched.append(av)
+    return matched
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
@@ -2067,6 +2864,15 @@ app.include_router(api_router)
 async def startup():
     UPLOAD_DIR.mkdir(exist_ok=True)
     logging.info(f"File storage initialized at {UPLOAD_DIR}")
+    # Pre-load trek watcher notify numbers from Firestore
+    if db:
+        try:
+            doc = db.collection("settings").document(WATCHER_SETTINGS_DOC).get()
+            if doc.exists:
+                watcher_config["notify_numbers"] = doc.to_dict().get("notify_numbers", [])
+                logging.info(f"[TrekWatcher] Loaded {len(watcher_config['notify_numbers'])} notify numbers")
+        except Exception as e:
+            logging.warning(f"[TrekWatcher] Could not load settings: {e}")
 
 app.add_middleware(
     CORSMiddleware,

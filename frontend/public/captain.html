@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BT Badminton — Captain Submission</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --surface: #14171c;
+    --surface-2: #1c2027;
+    --border: #2a2f38;
+    --text: #f4f5f7;
+    --muted: #8b919e;
+    --accent: #d4ff3a;
+    --win: #4ade80;
+    --warn: #ffb74d;
+    --err: #ff5e5e;
+    --team-color: #d4ff3a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    padding-bottom: 80px;
+  }
+  .banner {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--team-color) 85%, transparent), color-mix(in srgb, var(--team-color) 20%, transparent) 60%, transparent);
+    padding: 28px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .team-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    letter-spacing: 3px;
+    color: #fff;
+    line-height: 1;
+  }
+  .tag {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 4px 10px;
+    background: rgba(0,0,0,0.5);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  main { max-width: 800px; margin: 0 auto; padding: 24px; }
+  .loading {
+    text-align: center;
+    padding: 80px 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--team-color);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 2px;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .h2-sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .player-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 480px) { .player-grid { grid-template-columns: 1fr; } }
+  .player-list-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 6px;
+  }
+  .player-row {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    padding: 2px 6px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .badge-A { background: rgba(212,255,58,0.15); color: #d4ff3a; }
+  .badge-I { background: rgba(77,208,225,0.15); color: #4dd0e1; }
+  .badge-B { background: rgba(186,104,200,0.15); color: #ba68c8; }
+  .pair-form { margin-top: 12px; }
+  .format-block { margin-bottom: 14px; }
+  .format-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .format-label .ok { color: var(--win); }
+  .format-label .warn { color: var(--warn); }
+  .pair-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 6px; }
+  select.player-select {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    width: 100%;
+  }
+  select.player-select:focus { outline: 1px solid var(--team-color); }
+  select.player-select.dup { border-color: var(--err); background: rgba(255,94,94,0.08); }
+  .submit-bar {
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(to top, var(--bg) 60%, transparent);
+    padding: 24px;
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .submit-btn {
+    background: var(--team-color);
+    border: none;
+    color: #000;
+    padding: 16px;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 3px;
+    cursor: pointer;
+    width: 100%;
+    font-weight: 700;
+  }
+  .submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .submit-btn.submitting { opacity: 0.6; }
+  .status-msg {
+    padding: 12px 16px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-align: center;
+  }
+  .status-msg.ok { background: rgba(74,222,128,0.1); color: var(--win); border: 1px solid var(--win); }
+  .status-msg.err { background: rgba(255,94,94,0.1); color: var(--err); border: 1px solid var(--err); }
+  .status-msg.info { background: rgba(77,208,225,0.08); color: #4dd0e1; }
+  .last-saved {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 6px;
+  }
+  .footer {
+    text-align: center;
+    margin-top: 30px;
+    color: var(--muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  #content { display: none; }
+</style>
+</head>
+<body>
+  <div class="banner" id="banner">
+    <div class="team-name" id="teamNameEl">LOADING…</div>
+    <div class="tag">Captain Submission · Pick Your Pairs</div>
+  </div>
+  <main>
+    <div class="loading" id="loadingEl">Connecting to Firebase…</div>
+    <div id="content">
+      <div class="section">
+        <h2>Your Squad</h2>
+        <div class="h2-sub" id="squadSub">10 players · 6 men + 4 women</div>
+        <div class="player-grid" id="playerGrid"></div>
+      </div>
+      <div class="section">
+        <h2>Build Your Pairs</h2>
+        <div class="h2-sub">Each player can only play one format. Duplicates are highlighted in red.</div>
+        <div class="pair-form" id="pairForm"></div>
+      </div>
+      <div class="submit-bar">
+        <div id="statusMsg" style="display:none;"></div>
+        <button class="submit-btn" id="submitBtn" disabled>Loading…</button>
+        <div class="last-saved" id="lastSaved"></div>
+      </div>
+      <div class="footer">Bengaluru Trekkers · Badminton Tournament</div>
+    </div>
+  </main>
+
+<script type="module">
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCFl3n1PmSTN6eO4NdNDevIvFAmO78fV_M",
+  authDomain: "bengaluru-trekkers-ops.firebaseapp.com",
+  projectId: "bengaluru-trekkers-ops",
+  storageBucket: "bengaluru-trekkers-ops.firebasestorage.app",
+  messagingSenderId: "257754693783",
+  appId: "1:257754693783:web:56d100167617bc1ef769d2"
+};
+
+const params = new URLSearchParams(window.location.search);
+const teamId = params.get("team");
+
+if (!teamId) {
+  document.getElementById("loadingEl").textContent = "⚠ No team specified. Use ?team=alpha in the URL.";
+} else {
+  init();
+}
+
+let TEAM = null;
+let db = null;
+let _fb = {};
+
+const state = {
+  pairs: {
+    mens:   [["", ""], ["", ""]],
+    mixed:  [["", ""], ["", ""]],
+    womens: [["", ""]]
+  }
+};
+
+async function init() {
+  try {
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js");
+    const { getFirestore, doc, setDoc, getDoc, serverTimestamp } = await import("https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js");
+    const app = initializeApp(FIREBASE_CONFIG);
+    db = getFirestore(app);
+    _fb = { doc, setDoc, getDoc, serverTimestamp };
+
+    // Load team data
+    const teamSnap = await getDoc(doc(db, "tournament_teams", teamId));
+    if (!teamSnap.exists()) {
+      document.getElementById("loadingEl").textContent = `⚠ Team "${teamId}" not found. Ask the organizer to publish the team first.`;
+      return;
+    }
+    TEAM = teamSnap.data();
+
+    // Apply team colour
+    document.documentElement.style.setProperty("--team-color", TEAM.teamColor || "#d4ff3a");
+    document.getElementById("teamNameEl").textContent = "TEAM " + TEAM.teamName.toUpperCase();
+
+    const males = TEAM.players.filter(p => p.gender === "M");
+    const females = TEAM.players.filter(p => p.gender === "F");
+    document.getElementById("squadSub").textContent = `${TEAM.players.length} players · ${males.length} men + ${females.length} women`;
+
+    document.getElementById("loadingEl").style.display = "none";
+    document.getElementById("content").style.display = "block";
+
+    // Try to load prior submission
+    await loadExisting();
+
+    renderRoster();
+    renderForm();
+    document.getElementById("submitBtn").addEventListener("click", submitPairs);
+  } catch (e) {
+    console.error(e);
+    document.getElementById("loadingEl").textContent = "⚠ Could not connect to Firebase: " + e.message;
+  }
+}
+
+// Firestore doesn't allow nested arrays — flatten [["a","b"]] to [{p1:"a",p2:"b"}]
+const flattenPairs = (fmt) => fmt.map(p => ({ p1: p[0] || "", p2: p[1] || "" }));
+const expandPairs  = (fmt) => fmt.map(p => [p.p1 || "", p.p2 || ""]);
+
+async function loadExisting() {
+  try {
+    const snap = await _fb.getDoc(_fb.doc(db, "tournament_submissions", teamId));
+    if (snap.exists()) {
+      const d = snap.data();
+      if (d.pairs) {
+        state.pairs = {
+          mens:   expandPairs(d.pairs.mens   || [["",""],["",""]]),
+          mixed:  expandPairs(d.pairs.mixed  || [["",""],["",""]]),
+          womens: expandPairs(d.pairs.womens || [["",""]])
+        };
+      }
+      if (d.lastUpdatedAt) {
+        const date = d.lastUpdatedAt.toDate ? d.lastUpdatedAt.toDate() : new Date(d.lastUpdatedAt);
+        document.getElementById("lastSaved").textContent = "Last submitted: " + date.toLocaleString();
+        showStatus("Existing submission loaded — edit and resubmit if needed.", "info");
+      }
+    }
+  } catch (e) { console.warn("No prior submission", e); }
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById("statusMsg");
+  el.style.display = "block";
+  el.className = "status-msg " + (type || "info");
+  el.textContent = msg;
+}
+
+function renderRoster() {
+  const males = TEAM.players.filter(p => p.gender === "M");
+  const females = TEAM.players.filter(p => p.gender === "F");
+  document.getElementById("playerGrid").innerHTML = `
+    <div>
+      <div class="player-list-label">Men · ${males.length}</div>
+      ${males.map((p, i) => `
+        <div class="player-row">
+          <span>${i+1}. ${p.name}</span>
+          <span class="badge badge-${p.skill}">${p.skill}</span>
+        </div>`).join("")}
+    </div>
+    <div>
+      <div class="player-list-label">Women · ${females.length}</div>
+      ${females.map((p, i) => `
+        <div class="player-row">
+          <span>${i+1}. ${p.name}</span>
+          <span class="badge badge-${p.skill}">${p.skill}</span>
+        </div>`).join("")}
+    </div>
+  `;
+}
+
+function renderForm() {
+  const form = document.getElementById("pairForm");
+  const males = TEAM.players.filter(p => p.gender === "M").map(p => p.name);
+  const females = TEAM.players.filter(p => p.gender === "F").map(p => p.name);
+
+  const usage = {};
+  const tally = (n) => { if (n) usage[n] = (usage[n] || 0) + 1; };
+  state.pairs.mens.forEach(p => p.forEach(tally));
+  state.pairs.mixed.forEach(p => p.forEach(tally));
+  state.pairs.womens.forEach(p => p.forEach(tally));
+
+  const select = (val, opts, slot) => {
+    const isDup = val && usage[val] > 1;
+    return `<select class="player-select ${isDup ? 'dup' : ''}" data-slot="${slot}">
+      <option value="">— Select —</option>
+      ${opts.map(n => `<option value="${n}" ${val===n?'selected':''}>${n}</option>`).join("")}
+    </select>`;
+  };
+
+  const allFilled = (arr) => arr.every(p => p[0] && p[1]);
+  const mensOk = allFilled(state.pairs.mens);
+  const mixedOk = allFilled(state.pairs.mixed);
+  const womensOk = allFilled(state.pairs.womens);
+  const noDupes = Object.values(usage).every(v => v <= 1);
+
+  form.innerHTML = `
+    <div class="format-block">
+      <div class="format-label">Men's Doubles · 2 pairs <span class="${mensOk?'ok':'warn'}">${mensOk?'✓':'⋯'}</span></div>
+      ${state.pairs.mens.map((pair, i) => `
+        <div class="pair-row">
+          ${select(pair[0], males, `mens|${i}|0`)}
+          ${select(pair[1], males, `mens|${i}|1`)}
+        </div>`).join("")}
+    </div>
+    <div class="format-block">
+      <div class="format-label">Mixed Doubles · 2 pairs (1M + 1F) <span class="${mixedOk?'ok':'warn'}">${mixedOk?'✓':'⋯'}</span></div>
+      ${state.pairs.mixed.map((pair, i) => `
+        <div class="pair-row">
+          ${select(pair[0], males, `mixed|${i}|0`)}
+          ${select(pair[1], females, `mixed|${i}|1`)}
+        </div>`).join("")}
+    </div>
+    <div class="format-block">
+      <div class="format-label">Women's Doubles · 1 pair <span class="${womensOk?'ok':'warn'}">${womensOk?'✓':'⋯'}</span></div>
+      ${state.pairs.womens.map((pair, i) => `
+        <div class="pair-row">
+          ${select(pair[0], females, `womens|${i}|0`)}
+          ${select(pair[1], females, `womens|${i}|1`)}
+        </div>`).join("")}
+    </div>
+  `;
+
+  form.querySelectorAll("select.player-select").forEach(sel => {
+    sel.addEventListener("change", (e) => {
+      const [fmt, idx, slot] = e.target.dataset.slot.split("|");
+      state.pairs[fmt][parseInt(idx)][parseInt(slot)] = e.target.value;
+      renderForm();
+    });
+  });
+
+  const btn = document.getElementById("submitBtn");
+  const allOk = mensOk && mixedOk && womensOk && noDupes;
+  btn.disabled = !allOk;
+  btn.textContent = !noDupes ? "Resolve duplicates first" :
+    (!allOk ? "Fill all pairs to submit" : "Submit Pairs");
+}
+
+async function submitPairs() {
+  const btn = document.getElementById("submitBtn");
+  btn.classList.add("submitting");
+  btn.disabled = true;
+  btn.textContent = "Submitting…";
+  try {
+    const ref = _fb.doc(db, "tournament_submissions", teamId);
+    await _fb.setDoc(ref, {
+      teamId,
+      teamName: TEAM.teamName,
+      pairs: {
+        mens:   flattenPairs(state.pairs.mens),
+        mixed:  flattenPairs(state.pairs.mixed),
+        womens: flattenPairs(state.pairs.womens)
+      },
+      lastUpdatedAt: _fb.serverTimestamp(),
+      version: 1
+    }, { merge: true });
+    showStatus("✓ Submitted! Organizer has been notified.", "ok");
+    document.getElementById("lastSaved").textContent = "Last submitted: " + new Date().toLocaleString();
+    btn.textContent = "✓ Submitted (edit & resubmit anytime)";
+    btn.classList.remove("submitting");
+  } catch (e) {
+    console.error(e);
+    showStatus("Submission failed: " + e.message, "err");
+    btn.textContent = "Try again";
+    btn.disabled = false;
+    btn.classList.remove("submitting");
+  }
+}
+</script>
+</body>
+</html>

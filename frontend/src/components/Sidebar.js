@@ -6,7 +6,8 @@ import api from '@/utils/api';
 import {
   LayoutDashboard, Mountain, Calendar, Users, CheckSquare,
   UserCog, LogOut, Settings as SettingsIcon, Ticket, BarChart3,
-  Bell, X, CalendarDays, Gift, Tag, UsersRound,
+  Bell, X, CalendarDays, Gift, Tag, UsersRound, TrendingUp, Hotel, ClipboardList, Truck,
+  Trophy, ExternalLink, Eye, CalendarCheck,
   // Finance icons
   DollarSign, Receipt, CreditCard, Users2, FileText, BookOpen, ChevronDown, ChevronRight,
 } from 'lucide-react';
@@ -28,7 +29,13 @@ const opsMenu = [
   { path: '/rewards',   icon: Gift,             label: 'Rewards',     roles: ['Super Admin'] },
   { path: '/users',     icon: UserCog,          label: 'Users',       roles: ['Super Admin'] },
   { path: '/settings',  icon: SettingsIcon,     label: 'Settings',    roles: ['Super Admin'] },
-  { path: '/meet-the-team', icon: UsersRound,  label: 'Meet the Team', roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
+  { path: '/meet-the-team',      icon: UsersRound,  label: 'Meet the Team',     roles: ['Super Admin', 'Operations Manager', 'Coordinator', 'Trek Lead'] },
+  { path: '/lead-performance',   icon: TrendingUp,  label: 'Lead Performance',  roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/hotel-stays',        icon: Hotel,          label: 'Hotel Stays',       roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/packing-lists',      icon: ClipboardList,  label: 'Packing Lists',     roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/vehicle-allocation', icon: Truck,          label: 'Vehicle Allocation', roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/trek-watcher',       icon: Eye,            label: 'Trek Watcher',       roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/my-availability',    icon: CalendarCheck,  label: 'My Availability',    roles: ['Trek Lead', 'Coordinator', 'Operations Manager', 'Super Admin'] },
 ];
 
 const financeMenu = [
@@ -111,7 +118,7 @@ const Sidebar = ({ open, onClose }) => {
         to={path}
         className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm ${
           active
-            ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+            ? 'bg-[#f1563f] text-white shadow-lg'
             : 'text-slate-300 hover:bg-slate-800 hover:text-white'
         }`}
       >
@@ -155,6 +162,25 @@ const Sidebar = ({ open, onClose }) => {
           {filteredOps.map(item => (
             <NavItem key={item.path} {...item} />
           ))}
+
+          {/* ── Events section ──────── */}
+          {['Super Admin', 'Operations Manager'].includes(userProfile?.role) && (
+            <>
+              <div className="pt-3">
+                <p className="px-3 py-1 text-xs font-semibold text-slate-500 uppercase tracking-wider">Events</p>
+              </div>
+              <a
+                href="https://bengaluru-trekkers-ops.web.app/tournament.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
+              >
+                <Trophy size={18} strokeWidth={2} />
+                <span className="font-medium">BT Tournament</span>
+                <ExternalLink size={12} className="ml-auto opacity-50" />
+              </a>
+            </>
+          )}
 
           {/* ── Finance section ──────── */}
           {showFinance && (

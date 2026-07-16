@@ -5,10 +5,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Settings as SettingsIcon, Plus, X } from 'lucide-react';
+import { Settings as SettingsIcon, Plus, X, Copy, Check, CalendarCheck } from 'lucide-react';
+
+const BRAND = '#f1563f';
 
 const Settings = () => {
   const [loading, setLoading] = useState(true);
+  const [avConfig, setAvConfig]   = useState({ showTrekNames: true, activeMonth: '' });
+  const [avSaving, setAvSaving]   = useState(false);
+  const [copied, setCopied]       = useState(false);
   const [config, setConfig] = useState({
     categories: [],
     difficultyLevels: [],
@@ -26,6 +31,7 @@ const Settings = () => {
 
   useEffect(() => {
     fetchConfig();
+    api.get('/availability/config').then(r => setAvConfig(r.data || {})).catch(() => {});
   }, []);
 
   const fetchConfig = async () => {
@@ -298,6 +304,92 @@ const Settings = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Lead Availability Link ── */}
+      <Card className="border-slate-100">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base heading-font">
+            <CalendarCheck size={18} style={{ color: BRAND }} />
+            Lead Availability Link
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Shareable link */}
+          <div>
+            <Label className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1.5 block">Shareable link</Label>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-mono text-slate-700 truncate">
+                {window.location.origin}/my-availability
+              </div>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/my-availability`);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+                className="flex-shrink-0 h-10 px-4 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors text-white"
+                style={{ background: copied ? '#22c55e' : BRAND }}
+              >
+                {copied ? <><Check size={13} /> Copied!</> : <><Copy size={13} /> Copy</>}
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-1.5">
+              Share this link with trek leads. They'll be asked to log in first.
+            </p>
+          </div>
+
+          {/* Active month */}
+          <div>
+            <Label className="text-xs text-slate-500 uppercase tracking-widest font-semibold mb-1.5 block">Active month</Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="month"
+                value={avConfig.activeMonth || ''}
+                onChange={e => setAvConfig(p => ({ ...p, activeMonth: e.target.value }))}
+                className="h-10 px-3 text-sm border border-slate-200 rounded-xl bg-slate-50 font-medium focus:outline-none flex-1"
+              />
+              <button
+                onClick={async () => {
+                  setAvSaving(true);
+                  try {
+                    await api.put('/availability/config', avConfig);
+                    toast.success('Availability settings saved');
+                  } catch { toast.error('Failed to save'); }
+                  finally { setAvSaving(false); }
+                }}
+                disabled={avSaving}
+                className="h-10 px-4 rounded-xl text-xs font-bold text-white flex-shrink-0"
+                style={{ background: BRAND }}
+              >
+                {avSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-1.5">
+              Leads will only see batches for this month on the availability page.
+            </p>
+          </div>
+
+          {/* Show trek names toggle */}
+          <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Show trek names to leads</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                When off, leads see "Weekend Trek — 4 Jun → 6 Jun" instead of trek names.
+              </p>
+            </div>
+            <button
+              onClick={() => setAvConfig(p => ({ ...p, showTrekNames: !p.showTrekNames }))}
+              className="relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200"
+              style={{ background: avConfig.showTrekNames ? BRAND : '#e2e8f0' }}
+            >
+              <span
+                className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200"
+                style={{ transform: avConfig.showTrekNames ? 'translateX(20px)' : 'translateX(0)' }}
+              />
+            </button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="border-blue-100 bg-blue-50">
         <CardContent className="p-4">
