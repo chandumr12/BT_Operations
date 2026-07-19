@@ -1,5 +1,6 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey:            'AIzaSyCFl3n1PmSTN6eO4NdNDevIvFAmO78fV_M',
@@ -12,3 +13,7 @@ const firebaseConfig = {
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 export const auth = getAuth(app);
+
+// Packing Lists and Vehicle Allocation have no REST endpoints — the web app
+// reads those Firestore collections directly, so the mobile app does the same.
+export const firestore = getFirestore(app);

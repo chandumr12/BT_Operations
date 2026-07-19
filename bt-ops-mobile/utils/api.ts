@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { auth } from './firebase';
 
-const BASE_URL = 'https://bt-ops-backend-257754693783.asia-south1.run.app/api';
+export const BASE_URL = 'https://bt-ops-backend-257754693783.asia-south1.run.app/api';
 
 const api = axios.create({ baseURL: BASE_URL });
 

@@ -35,6 +35,14 @@ export default function LeadLayout() {
         options={{ title: 'My Batches', tabBarIcon: ({ focused }) => <TabIcon name="layers" focused={focused} /> }}
       />
       <Tabs.Screen
+        name="tasks"
+        options={{ title: 'Tasks', tabBarIcon: ({ focused }) => <TabIcon name="checkbox" focused={focused} /> }}
+      />
+      <Tabs.Screen
+        name="checklists"
+        options={{ title: 'Checklists', tabBarIcon: ({ focused }) => <TabIcon name="list" focused={focused} /> }}
+      />
+      <Tabs.Screen
         name="expenses"
         options={{ title: 'Expenses', tabBarIcon: ({ focused }) => <TabIcon name="receipt" focused={focused} /> }}
       />

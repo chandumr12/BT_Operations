@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, Alert, RefreshControl, ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { AppShell } from '@/components/AppShell';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '@/components/Card';
@@ -95,7 +95,7 @@ export default function WatcherScreen() {
   const running = watchers.filter(w => ['starting','running','available'].includes(w.status)).length;
 
   return (
-    <SafeAreaView style={s.safe}>
+    <AppShell>
       <ScrollView
         contentContainerStyle={s.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
@@ -211,7 +211,7 @@ export default function WatcherScreen() {
           </View>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </AppShell>
   );
 }
 

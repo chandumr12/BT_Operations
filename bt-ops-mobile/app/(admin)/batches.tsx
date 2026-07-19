@@ -1,196 +1,288 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, RefreshControl, Modal, ScrollView, Alert,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView,
+  RefreshControl, ActivityIndicator, Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { Card } from '@/components/Card';
-import { StatusBadge } from '@/components/StatusBadge';
+import { AppShell } from '@/components/AppShell';
+import { PageTitle, SearchBar, Chip, ColorTile, Pill, Panel, STATUS_STYLE, EmptyState } from '@/components/ui';
+import { BatchDetailModal, BatchSummary } from '@/components/BatchDetailModal';
+import { BatchFormModal } from '@/components/BatchFormModal';
+import { BatchAvailabilityPanel } from '@/components/BatchAvailabilityPanel';
 import { Colors } from '@/constants/Colors';
 import api from '@/utils/api';
+import { describeError } from '@/utils/errors';
 
-interface Batch {
-  id: string;
-  batchCode: string;
-  trekId: string;
-  startDate: string;
-  endDate: string;
-  maxCapacity: number;
-  currentRegistrations: number;
-  status: string;
-  assignedLeads?: { displayName: string }[];
+interface Batch extends BatchSummary {
+  trekId?: string;
 }
 
-interface Trek { id: string; name: string; region: string; }
-
-function BatchDetailModal({ batch, onClose }: { batch: Batch; onClose: () => void }) {
-  const [participants, setParticipants] = useState<any[]>([]);
-  const [trek, setTrek] = useState<Trek | null>(null);
-
-  useEffect(() => {
-    api.get(`/batches/${batch.id}/participants`).then(r => setParticipants(r.data)).catch(() => {});
-    if (batch.trekId) api.get(`/treks/${batch.trekId}`).then(r => setTrek(r.data)).catch(() => {});
-  }, [batch.id]);
-
-  return (
-    <Modal visible animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={md.safe}>
-        <View style={md.header}>
-          <TouchableOpacity onPress={onClose} style={md.backBtn}>
-            <Ionicons name="arrow-back" size={22} color={Colors.gray900} />
-          </TouchableOpacity>
-          <Text style={md.title}>{batch.batchCode}</Text>
-          <StatusBadge status={batch.status} />
-        </View>
-        <ScrollView contentContainerStyle={md.content}>
-          <Card padding={16} style={{ gap: 10 }}>
-            <Row label="Trek"     value={trek?.name ?? batch.trekId} />
-            <Row label="Dates"    value={`${batch.startDate} → ${batch.endDate}`} />
-            <Row label="Capacity" value={`${batch.currentRegistrations} / ${batch.maxCapacity}`} />
-            <Row label="Leads"    value={batch.assignedLeads?.map(l => l.displayName).join(', ') || '—'} />
-          </Card>
-
-          <Text style={md.sectionTitle}>Participants ({participants.length})</Text>
-          {participants.map(p => (
-            <Card key={p.id} padding={14} style={md.participantCard}>
-              <View style={md.pRow}>
-                <View>
-                  <Text style={md.pName}>{p.fullName}</Text>
-                  <Text style={md.pSub}>{p.contactNo}  •  {p.gender}, {p.age}y</Text>
-                </View>
-                <View style={[md.boardedDot, { backgroundColor: p.boarded ? Colors.success : Colors.gray300 }]} />
-              </View>
-            </Card>
-          ))}
-          {participants.length === 0 && <Text style={md.empty}>No participants yet</Text>}
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
-      <Text style={{ color: Colors.gray500, fontSize: 13, fontWeight: '500' }}>{label}</Text>
-      <Text style={{ color: Colors.gray900, fontSize: 13, fontWeight: '600', flex: 1, textAlign: 'right' }}>{value}</Text>
-    </View>
-  );
-}
+const STATUS_OPTIONS = ['Open', 'Closed', 'Completed', 'Cancelled'];
+type Filter = 'All' | 'Current' | 'Upcoming' | 'Past';
 
 export default function BatchesScreen() {
-  const [batches,    setBatches]    = useState<Batch[]>([]);
-  const [filtered,   setFiltered]   = useState<Batch[]>([]);
-  const [search,     setSearch]     = useState('');
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [trekNames, setTrekNames] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [selected,   setSelected]   = useState<Batch | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<Filter>('All');
+  const [selected, setSelected] = useState<Batch | null>(null);
+  const [showAvailability, setShowAvailability] = useState(false);
+  const [showNewBatch, setShowNewBatch] = useState(false);
 
-  const load = async () => {
-    try { const r = await api.get('/batches'); setBatches(r.data); setFiltered(r.data); } catch {}
-  };
+  const pickFilter = (f: Filter) => { setShowAvailability(false); setFilter(f); };
 
-  useEffect(() => { load(); }, []);
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get('/batches');
+      setBatches(r.data);
+      setError(null);
+    } catch (e: any) { setError(describeError(e)); }
+    finally { setLoading(false); }
 
-  useEffect(() => {
-    const q = search.toLowerCase();
-    setFiltered(batches.filter(b =>
-      b.batchCode.toLowerCase().includes(q) || b.status.toLowerCase().includes(q)
-    ));
-  }, [search, batches]);
+    try {
+      const r = await api.get('/treks');
+      const map: Record<string, string> = {};
+      r.data.forEach((t: any) => { map[t.id] = t.name; });
+      setTrekNames(map);
+    } catch {}
+  }, []);
 
+  useEffect(() => { load(); }, [load]);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
+  const today = new Date().toISOString().split('T')[0];
+  const buckets = useMemo(() => {
+    const current = batches.filter(b => b.startDate <= today && b.endDate >= today);
+    const upcoming = batches.filter(b => b.startDate > today);
+    const past = batches.filter(b => b.endDate < today);
+    return { current, upcoming, past };
+  }, [batches, today]);
+
+  const totalSeats = batches.reduce((s, b) => s + (b.maxCapacity || 0), 0);
+  const filledSeats = batches.reduce((s, b) => s + (b.currentRegistrations || 0), 0);
+  const fillPct = totalSeats > 0 ? Math.round((filledSeats / totalSeats) * 100) : 0;
+
+  const filtered = useMemo(() => {
+    let list =
+      filter === 'Current' ? buckets.current :
+      filter === 'Upcoming' ? buckets.upcoming :
+      filter === 'Past' ? buckets.past : batches;
+    const q = search.toLowerCase();
+    if (q) {
+      list = list.filter(b =>
+        b.batchCode?.toLowerCase().includes(q) ||
+        b.status?.toLowerCase().includes(q) ||
+        (b.trekId && trekNames[b.trekId]?.toLowerCase().includes(q))
+      );
+    }
+    return [...list].sort((a, b) => +new Date(a.startDate) - +new Date(b.startDate));
+  }, [batches, buckets, filter, search, trekNames]);
+
+  const setStatus = async (b: Batch, status: string) => {
+    setBatches(prev => prev.map(x => x.id === b.id ? { ...x, status } : x));
+    try { await api.patch(`/batches/${b.id}`, { status }); }
+    catch { Alert.alert('Error', 'Could not update batch status'); load(); }
+  };
+
+  const fmt = (iso: string) => {
+    const d = new Date(iso);
+    if (isNaN(+d)) return iso;
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const relative = (b: Batch) => {
+    const end = new Date(b.endDate);
+    const start = new Date(b.startDate);
+    const now = new Date();
+    if (isNaN(+end) || isNaN(+start)) return '';
+    if (end < now) return `Ended ${Math.round((+now - +end) / 86400000)}d ago`;
+    if (start > now) return `Starts in ${Math.round((+start - +now) / 86400000)}d`;
+    return 'Running now';
+  };
+
   return (
-    <SafeAreaView style={s.safe}>
-      <View style={s.header}>
-        <Text style={s.title}>Batches</Text>
-        <Text style={s.count}>{filtered.length}</Text>
-      </View>
-
-      <View style={s.searchBox}>
-        <Ionicons name="search-outline" size={16} color={Colors.gray400} />
-        <TextInput
-          style={s.searchInput}
-          placeholder="Search batch code or status…"
-          placeholderTextColor={Colors.gray400}
-          value={search}
-          onChangeText={setSearch}
-        />
-      </View>
-
+    <AppShell>
       <FlatList
-        data={filtered}
+        data={showAvailability ? [] : filtered}
         keyExtractor={b => b.id}
         contentContainerStyle={s.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
-        renderItem={({ item: b }) => (
-          <TouchableOpacity onPress={() => setSelected(b)} activeOpacity={0.85}>
-            <Card style={s.batchCard} padding={16}>
-              <View style={s.batchTop}>
-                <Text style={s.batchCode}>{b.batchCode}</Text>
-                <StatusBadge status={b.status} />
+        ListHeaderComponent={
+          <View style={{ gap: 12, marginBottom: 12 }}>
+            <PageTitle
+              title="Batch Planning"
+              subtitle="Manage trek batches · lead assignments · logistics"
+              right={
+                <TouchableOpacity style={s.newBtn} onPress={() => setShowNewBatch(true)} activeOpacity={0.85}>
+                  <Ionicons name="add" size={16} color={Colors.white} />
+                  <Text style={s.newBtnText}>New Batch</Text>
+                </TouchableOpacity>
+              }
+            />
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tileRow}>
+              <ColorTile value={batches.length} label="All Batches" bg={Colors.tileNavy} icon="stats-chart-outline" onPress={() => pickFilter('All')} />
+              <ColorTile value={buckets.current.length} label="Running Now" bg={Colors.tileGreen} icon="flash-outline" onPress={() => pickFilter('Current')} />
+              <ColorTile value={buckets.upcoming.length} label="Upcoming" bg={Colors.tileBlue} icon="arrow-up-outline" onPress={() => pickFilter('Upcoming')} />
+              <ColorTile value={buckets.past.length} label="Past" bg={Colors.tileGrayBg} fg={Colors.slate700} icon="checkmark-circle-outline" onPress={() => pickFilter('Past')} />
+              <ColorTile value={`${fillPct}%`} label="Overall Fill" sub={`${filledSeats}/${totalSeats} seats`} bg={Colors.tileOrange} icon="trending-up-outline" />
+            </ScrollView>
+
+            <SearchBar value={search} onChangeText={setSearch} placeholder="Search batch code, trek, lead, vendor..." />
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+              <Chip label="All"      count={batches.length}          active={!showAvailability && filter === 'All'}      onPress={() => pickFilter('All')} />
+              <Chip label="Current"  count={buckets.current.length}  active={!showAvailability && filter === 'Current'}  onPress={() => pickFilter('Current')} />
+              <Chip label="Upcoming" count={buckets.upcoming.length} active={!showAvailability && filter === 'Upcoming'} onPress={() => pickFilter('Upcoming')} />
+              <Chip label="Past"     count={buckets.past.length}     active={!showAvailability && filter === 'Past'}     onPress={() => pickFilter('Past')} />
+              <Chip label="Availability" active={showAvailability} onPress={() => setShowAvailability(true)} />
+            </ScrollView>
+
+            {error && (
+              <Panel style={s.errorPanel} padding={14}>
+                <View style={s.errorRow}>
+                  <Ionicons name="warning-outline" size={18} color={Colors.danger} />
+                  <Text style={s.errorText}>{error}</Text>
+                </View>
+              </Panel>
+            )}
+
+            {showAvailability ? (
+              <BatchAvailabilityPanel />
+            ) : (
+              !loading && (
+                <Text style={s.showing}>
+                  Showing <Text style={s.showingBold}>{filtered.length}</Text> of {batches.length} batches
+                </Text>
+              )
+            )}
+          </View>
+        }
+        renderItem={({ item: b }) => {
+          if (showAvailability) return null;
+          const st = STATUS_STYLE[b.status] ?? { color: Colors.slate700, bg: Colors.slate100 };
+          return (
+            <Panel padding={0} style={s.card}>
+              <TouchableOpacity onPress={() => setSelected(b)} activeOpacity={0.85} style={s.cardBody}>
+                <View style={s.cardTop}>
+                  <Text style={s.batchCode}>{b.batchCode}</Text>
+                  <Pill label={b.status} color={st.color} bg={st.bg} dot />
+                  <Text style={s.relative}>{relative(b)}</Text>
+                </View>
+
+                {!!b.trekId && trekNames[b.trekId] && (
+                  <View style={s.metaRow}>
+                    <Ionicons name="location-outline" size={13} color={Colors.slate400} />
+                    <Text style={s.metaText}>{trekNames[b.trekId]}</Text>
+                  </View>
+                )}
+
+                <View style={s.metaRow}>
+                  <Ionicons name="calendar-outline" size={13} color={Colors.slate400} />
+                  <Text style={s.metaText}>{fmt(b.startDate)} → {fmt(b.endDate)}</Text>
+                </View>
+
+                <View style={s.metaRow}>
+                  <Ionicons name="people-outline" size={13} color={Colors.slate400} />
+                  <Text style={s.metaText}>{b.currentRegistrations}/{b.maxCapacity}</Text>
+                  <View style={s.bar}>
+                    <View style={[s.barFill, {
+                      width: `${Math.min(100, (b.currentRegistrations / Math.max(1, b.maxCapacity)) * 100)}%` as any,
+                      backgroundColor: b.currentRegistrations >= b.maxCapacity ? Colors.danger : Colors.primary,
+                    }]} />
+                  </View>
+                </View>
+
+                {!!b.assignedLeads?.length && (
+                  <View style={s.leadRow}>
+                    {b.assignedLeads.slice(0, 3).map((l, i) => (
+                      <View key={i} style={s.leadPill}>
+                        <Ionicons name="star" size={10} color="#a16207" />
+                        <Text style={s.leadPillText}>{l.displayName}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <View style={s.statusBar}>
+                <Text style={s.statusLabel}>STATUS</Text>
+                {STATUS_OPTIONS.map(opt => {
+                  const active = b.status === opt;
+                  return (
+                    <TouchableOpacity
+                      key={opt}
+                      style={[s.statusBtn, active && s.statusBtnActive]}
+                      onPress={() => setStatus(b, opt)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[s.statusBtnText, active && s.statusBtnTextActive]}>{opt}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
-              <Text style={s.batchDate}>{b.startDate} → {b.endDate}</Text>
-              <View style={s.batchMeta}>
-                <Ionicons name="people-outline" size={13} color={Colors.gray400} />
-                <Text style={s.batchMetaText}>{b.currentRegistrations}/{b.maxCapacity} participants</Text>
-                {b.assignedLeads?.length ? (
-                  <>
-                    <Text style={s.dot}>•</Text>
-                    <Text style={s.batchMetaText}>{b.assignedLeads.length} lead(s)</Text>
-                  </>
-                ) : null}
-              </View>
-              {/* Capacity bar */}
-              <View style={s.bar}>
-                <View style={[s.barFill, {
-                  width: `${Math.min(100, (b.currentRegistrations / b.maxCapacity) * 100)}%` as any,
-                  backgroundColor: b.currentRegistrations >= b.maxCapacity ? Colors.danger : Colors.primary,
-                }]} />
-              </View>
-            </Card>
-          </TouchableOpacity>
-        )}
-        ListEmptyComponent={<Text style={s.empty}>No batches found</Text>}
+
+              <TouchableOpacity style={s.manageBtn} onPress={() => setSelected(b)} activeOpacity={0.85}>
+                <Ionicons name="eye-outline" size={15} color={Colors.white} />
+                <Text style={s.manageText}>Manage</Text>
+              </TouchableOpacity>
+            </Panel>
+          );
+        }}
+        ListEmptyComponent={
+          showAvailability ? null : loading
+            ? <ActivityIndicator color={Colors.primary} style={{ marginTop: 40 }} />
+            : <EmptyState icon="calendar-outline" title="No batches found" message="Try a different filter or search term." />
+        }
       />
 
       {selected && <BatchDetailModal batch={selected} onClose={() => setSelected(null)} />}
-    </SafeAreaView>
+      {showNewBatch && <BatchFormModal onClose={() => setShowNewBatch(false)} onSaved={load} />}
+    </AppShell>
   );
 }
 
 const s = StyleSheet.create({
-  safe:       { flex: 1, backgroundColor: Colors.gray50 },
-  header:     { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
-  title:      { fontSize: 22, fontWeight: '700', color: Colors.gray900, flex: 1 },
-  count:      { fontSize: 13, color: Colors.gray500, backgroundColor: Colors.gray100, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
-  searchBox:  { flexDirection: 'row', alignItems: 'center', gap: 8, margin: 16, marginTop: 8, backgroundColor: Colors.white, borderRadius: 12, borderWidth: 1, borderColor: Colors.border, paddingHorizontal: 12, height: 44 },
-  searchInput:{ flex: 1, fontSize: 14, color: Colors.gray900 },
-  list:       { paddingHorizontal: 16, gap: 10, paddingBottom: 24 },
-  batchCard:  {},
-  batchTop:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  batchCode:  { fontSize: 16, fontWeight: '700', color: Colors.gray900 },
-  batchDate:  { fontSize: 12, color: Colors.gray500, marginTop: 4 },
-  batchMeta:  { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 },
-  batchMetaText: { fontSize: 12, color: Colors.gray500 },
-  dot:        { color: Colors.gray300 },
-  bar:        { height: 4, backgroundColor: Colors.gray100, borderRadius: 2, marginTop: 10, overflow: 'hidden' },
-  barFill:    { height: 4, borderRadius: 2 },
-  empty:      { textAlign: 'center', color: Colors.gray400, padding: 40 },
-});
+  list: { padding: 16, paddingBottom: 40, gap: 12 },
 
-const md = StyleSheet.create({
-  safe:     { flex: 1, backgroundColor: Colors.gray50 },
-  header:   { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  backBtn:  { padding: 4 },
-  title:    { fontSize: 18, fontWeight: '700', color: Colors.gray900, flex: 1 },
-  content:  { padding: 16, gap: 14, paddingBottom: 40 },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.gray900, marginTop: 4 },
-  participantCard: { gap: 4 },
-  pRow:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  pName:    { fontSize: 14, fontWeight: '600', color: Colors.gray900 },
-  pSub:     { fontSize: 12, color: Colors.gray500, marginTop: 2 },
-  boardedDot: { width: 10, height: 10, borderRadius: 5 },
-  empty:    { textAlign: 'center', color: Colors.gray400, padding: 20 },
+  newBtn:     { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: Colors.primary, paddingHorizontal: 13, paddingVertical: 10, borderRadius: 11 },
+  newBtnText: { color: Colors.white, fontWeight: '700', fontSize: 13 },
+
+  tileRow: { gap: 10, paddingRight: 16 },
+  chipRow: { gap: 7, paddingRight: 16 },
+
+  showing:     { fontSize: 13, color: Colors.slate500 },
+  showingBold: { fontWeight: '800', color: Colors.slate900 },
+
+  errorPanel: { backgroundColor: Colors.dangerBg, borderColor: '#fecaca' },
+  errorRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  errorText:  { color: Colors.danger, fontWeight: '600', fontSize: 13, flex: 1 },
+
+  card:     { overflow: 'hidden' },
+  cardBody: { padding: 14, gap: 7 },
+  cardTop:  { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  batchCode:{ fontSize: 16, fontWeight: '800', color: Colors.slate900 },
+  relative: { fontSize: 11, color: Colors.slate400, marginLeft: 'auto' },
+
+  metaRow:  { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  metaText: { fontSize: 12, color: Colors.slate500 },
+  bar:      { flex: 1, height: 4, backgroundColor: Colors.slate100, borderRadius: 2, overflow: 'hidden', marginLeft: 4 },
+  barFill:  { height: 4, borderRadius: 2 },
+
+  leadRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
+  leadPill:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fef9c3', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
+  leadPillText: { fontSize: 11, fontWeight: '700', color: '#a16207' },
+
+  statusBar:   { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.slate100 },
+  statusLabel: { fontSize: 10, fontWeight: '800', color: Colors.slate400, letterSpacing: 0.6, marginRight: 2 },
+  statusBtn:   { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1, borderColor: Colors.slate200 },
+  statusBtnActive: { backgroundColor: Colors.slate900, borderColor: Colors.slate900 },
+  statusBtnText:   { fontSize: 11, fontWeight: '600', color: Colors.slate500 },
+  statusBtnTextActive: { color: Colors.white },
+
+  manageBtn:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: Colors.primary, paddingVertical: 11 },
+  manageText: { color: Colors.white, fontWeight: '700', fontSize: 13 },
 });

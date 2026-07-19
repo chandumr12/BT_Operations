@@ -1,10 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card } from '@/components/Card';
 import { Colors } from '@/constants/Colors';
+import { confirmAction } from '@/utils/confirm';
 
 function Avatar({ name }: { name: string }) {
   const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
@@ -44,10 +45,7 @@ export default function LeadProfileScreen() {
   const { profile, logout } = useAuth();
 
   const handleLogout = () => {
-    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: logout },
-    ]);
+    confirmAction('Sign out', 'Are you sure you want to sign out?', 'Sign out', logout);
   };
 
   return (

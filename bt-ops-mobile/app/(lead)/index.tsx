@@ -1,110 +1,48 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
-  RefreshControl, Modal, ScrollView,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/AuthContext';
 import { Card } from '@/components/Card';
 import { StatusBadge } from '@/components/StatusBadge';
+import { BatchDetailModal, BatchSummary } from '@/components/BatchDetailModal';
+import { NotificationsModal } from '@/components/NotificationsModal';
 import { Colors } from '@/constants/Colors';
 import api from '@/utils/api';
+import { describeError } from '@/utils/errors';
 
-interface Batch {
-  id: string;
-  batchCode: string;
-  startDate: string;
-  endDate: string;
-  maxCapacity: number;
-  currentRegistrations: number;
-  status: string;
+interface Batch extends BatchSummary {
   trekName?: string;
 }
 
-interface Participant {
-  id: string;
-  fullName: string;
-  contactNo: string;
-  gender: string;
-  age: number;
-  boarded: boolean;
-}
-
-function ParticipantsModal({ batch, onClose }: { batch: Batch; onClose: () => void }) {
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.get(`/batches/${batch.id}/participants`)
-      .then(r => setParticipants(r.data))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [batch.id]);
-
-  return (
-    <Modal visible animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={pm.safe}>
-        <View style={pm.header}>
-          <TouchableOpacity onPress={onClose} style={pm.backBtn}>
-            <Ionicons name="arrow-back" size={22} color={Colors.gray900} />
-          </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={pm.title}>{batch.batchCode}</Text>
-            <Text style={pm.sub}>{batch.startDate} → {batch.endDate}</Text>
-          </View>
-          <StatusBadge status={batch.status} />
-        </View>
-
-        {/* Capacity bar */}
-        <View style={pm.capRow}>
-          <Text style={pm.capLabel}>{batch.currentRegistrations}/{batch.maxCapacity} participants</Text>
-          <View style={pm.barBg}>
-            <View style={[pm.barFill, {
-              width: `${Math.min(100, (batch.currentRegistrations / batch.maxCapacity) * 100)}%` as any,
-              backgroundColor: batch.currentRegistrations >= batch.maxCapacity ? Colors.danger : Colors.primary,
-            }]} />
-          </View>
-        </View>
-
-        <ScrollView contentContainerStyle={pm.list}>
-          <Text style={pm.sectionTitle}>Participants ({participants.length})</Text>
-          {loading && <Text style={pm.loading}>Loading…</Text>}
-          {participants.map(p => (
-            <Card key={p.id} padding={14} style={[pm.pCard, p.boarded && pm.pCardBoarded]}>
-              <View style={pm.pRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={pm.pName}>{p.fullName}</Text>
-                  <Text style={pm.pSub}>{p.contactNo}  •  {p.gender}, {p.age}y</Text>
-                </View>
-                <View style={[pm.boardedBadge, { backgroundColor: p.boarded ? Colors.successBg : Colors.gray100 }]}>
-                  <Ionicons name={p.boarded ? 'checkmark-circle' : 'ellipse-outline'} size={14} color={p.boarded ? Colors.success : Colors.gray400} />
-                  <Text style={[pm.boardedText, { color: p.boarded ? Colors.success : Colors.gray400 }]}>
-                    {p.boarded ? 'Boarded' : 'Pending'}
-                  </Text>
-                </View>
-              </View>
-            </Card>
-          ))}
-          {!loading && participants.length === 0 && (
-            <Text style={pm.empty}>No participants yet</Text>
-          )}
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
-  );
-}
+const UPCOMING_STATUSES = ['Open', 'Filling Fast', 'Full'];
 
 export default function LeadBatchesScreen() {
   const { profile } = useAuth();
   const [batches,    setBatches]    = useState<Batch[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selected,   setSelected]   = useState<Batch | null>(null);
+  const [showNotifs, setShowNotifs] = useState(false);
+  const [unread,     setUnread]     = useState(0);
+  const [error,      setError]      = useState<string | null>(null);
 
   const load = async () => {
     try {
-      const r = await api.get('/lead/my-batches');
-      setBatches(r.data);
+      const r = await api.get('/batches/my');
+      const list: Batch[] = r.data;
+      // Attach trek names (best-effort, ignore failures)
+      const trekIds = Array.from(new Set(list.map(b => b.trekId).filter(Boolean)));
+      const treks = await Promise.all(trekIds.map(id => api.get(`/treks/${id}`).then(r2 => r2.data).catch(() => null)));
+      const trekMap: Record<string, string> = {};
+      treks.forEach(t => { if (t) trekMap[t.id] = t.name; });
+      setBatches(list.map(b => ({ ...b, trekName: b.trekId ? trekMap[b.trekId] : undefined })));
+      setError(null);
+    } catch (e: any) { setError(describeError(e)); }
+    try {
+      const r = await api.get('/notifications/unread-count');
+      setUnread(r.data?.count ?? 0);
     } catch {}
   };
 
@@ -112,8 +50,7 @@ export default function LeadBatchesScreen() {
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
-  const upcoming = batches.filter(b => ['upcoming', 'confirmed'].includes(b.status));
-  const past     = batches.filter(b => !['upcoming', 'confirmed'].includes(b.status));
+  const upcoming = batches.filter(b => UPCOMING_STATUSES.includes(b.status));
 
   const renderBatch = ({ item: b }: { item: Batch }) => (
     <TouchableOpacity onPress={() => setSelected(b)} activeOpacity={0.85}>
@@ -150,10 +87,25 @@ export default function LeadBatchesScreen() {
           <Text style={s.greeting}>Hello, {profile?.displayName?.split(' ')[0] ?? 'Lead'}</Text>
           <Text style={s.title}>My Batches</Text>
         </View>
-        <View style={s.countBadge}>
-          <Text style={s.countText}>{batches.length}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <TouchableOpacity style={s.bellBtn} onPress={() => setShowNotifs(true)}>
+            <Ionicons name="notifications-outline" size={20} color={Colors.gray700} />
+            {unread > 0 && <View style={s.bellDot} />}
+          </TouchableOpacity>
+          <View style={s.countBadge}>
+            <Text style={s.countText}>{batches.length}</Text>
+          </View>
         </View>
       </View>
+
+      {error && (
+        <Card style={s.errorCard} padding={14}>
+          <View style={s.errorRow}>
+            <Ionicons name="warning-outline" size={18} color={Colors.danger} />
+            <Text style={s.errorText}>{error}</Text>
+          </View>
+        </Card>
+      )}
 
       <FlatList
         data={batches}
@@ -174,7 +126,8 @@ export default function LeadBatchesScreen() {
         }
       />
 
-      {selected && <ParticipantsModal batch={selected} onClose={() => setSelected(null)} />}
+      {selected && <BatchDetailModal batch={selected} onClose={() => setSelected(null)} />}
+      {showNotifs && <NotificationsModal onClose={() => { setShowNotifs(false); load(); }} />}
     </SafeAreaView>
   );
 }
@@ -184,7 +137,9 @@ const s = StyleSheet.create({
   header:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
   greeting:  { fontSize: 13, color: Colors.gray500 },
   title:     { fontSize: 22, fontWeight: '700', color: Colors.gray900 },
-  countBadge:{ backgroundColor: Colors.primaryBg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginTop: 4 },
+  bellBtn:   { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.border, alignItems: 'center', justifyContent: 'center' },
+  bellDot:   { position: 'absolute', top: 8, right: 9, width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.danger },
+  countBadge:{ backgroundColor: Colors.primaryBg, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   countText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
   sectionLabel: { fontSize: 13, fontWeight: '600', color: Colors.gray500, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
   list:      { padding: 16, gap: 10, paddingBottom: 24 },
@@ -200,27 +155,7 @@ const s = StyleSheet.create({
   barFill:   { height: 4, borderRadius: 2 },
   empty:     { alignItems: 'center', paddingVertical: 60, gap: 10 },
   emptyText: { color: Colors.gray400, fontSize: 14 },
-});
-
-const pm = StyleSheet.create({
-  safe:     { flex: 1, backgroundColor: Colors.gray50 },
-  header:   { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16, backgroundColor: Colors.white, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  backBtn:  { padding: 4 },
-  title:    { fontSize: 17, fontWeight: '700', color: Colors.gray900 },
-  sub:      { fontSize: 12, color: Colors.gray500, marginTop: 1 },
-  capRow:   { paddingHorizontal: 16, paddingVertical: 12, backgroundColor: Colors.white, gap: 8 },
-  capLabel: { fontSize: 13, color: Colors.gray600, fontWeight: '500' },
-  barBg:    { height: 6, backgroundColor: Colors.gray100, borderRadius: 3, overflow: 'hidden' },
-  barFill:  { height: 6, borderRadius: 3 },
-  list:     { padding: 16, gap: 10, paddingBottom: 40 },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.gray900, marginBottom: 4 },
-  loading:  { color: Colors.gray400, textAlign: 'center', padding: 20 },
-  pCard:    {},
-  pCardBoarded: { borderColor: Colors.success + '40' },
-  pRow:     { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  pName:    { fontSize: 14, fontWeight: '600', color: Colors.gray900 },
-  pSub:     { fontSize: 12, color: Colors.gray500, marginTop: 2 },
-  boardedBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 20 },
-  boardedText:  { fontSize: 11, fontWeight: '600' },
-  empty:    { textAlign: 'center', color: Colors.gray400, padding: 20 },
+  errorCard: { marginHorizontal: 16, marginBottom: 8, backgroundColor: Colors.dangerBg, borderColor: '#fecaca' },
+  errorRow:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  errorText: { color: Colors.danger, fontWeight: '600', fontSize: 13, flex: 1 },
 });
