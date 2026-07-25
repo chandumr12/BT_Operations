@@ -25,7 +25,6 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 # ── Firebase ──────────────────────────────────────────────────────────────────
 import firebase_admin
@@ -252,7 +251,8 @@ async def do_login(page: Page, email: str, password: str, label: str) -> bool:
         await page.wait_for_timeout(2500)
 
         url = page.url
-        if any(x in url for x in ["/dashboard", "/my-booking", "/upcoming", "/profile"]):
+        # /bookinginfo is the real post-login URL for upcoming treks
+        if any(x in url for x in ["/bookinginfo", "/dashboard", "/my-booking", "/profile"]):
             return True
 
         # Check for wrong captcha error
@@ -264,7 +264,7 @@ async def do_login(page: Page, email: str, password: str, label: str) -> bool:
 
         # Might have logged in anyway — check nav
         try:
-            if await page.locator('a:has-text("Logout"), a:has-text("My Booking")').count() > 0:
+            if await page.locator('a:has-text("Logout"), a:has-text("My Bookings"), a:has-text("Upcoming Treks")').count() > 0:
                 return True
         except Exception:
             pass
@@ -274,153 +274,80 @@ async def do_login(page: Page, email: str, password: str, label: str) -> bool:
 
 # ── Scrape upcoming bookings ──────────────────────────────────────────────────
 async def scrape_upcoming(page: Page, label: str) -> list:
-    """Navigate to Upcoming Treks and collect all bookings + visitor details."""
-    bookings = []
-
-    # Navigate to my-booking/upcoming
-    try:
-        await page.goto(BASE_URL + "/my-booking/upcoming", wait_until="domcontentloaded", timeout=20000)
-    except Exception:
+    """Scrape all upcoming trek bookings from /bookinginfo."""
+    # /bookinginfo is the correct page — /my-booking/upcoming gives 404
+    if '/bookinginfo' not in page.url:
         try:
-            await page.click('a:has-text("Upcoming Treks")')
-            await page.wait_for_load_state("domcontentloaded", timeout=15000)
+            await page.goto(BASE_URL + "/bookinginfo", wait_until="domcontentloaded", timeout=20000)
+            await page.wait_for_timeout(1500)
         except Exception:
             pass
 
-    await page.wait_for_timeout(1500)
-
-    # Collect all "View Visitors" buttons
-    view_btns = await page.query_selector_all('button:text("View Visitors"), a:text("View Visitors")')
-    if not view_btns:
-        # Try alternate text
-        view_btns = await page.query_selector_all('[onclick*="visitor" i], [href*="visitor" i]')
-
-    # Parse each booking card + click View Visitors
-    cards = await page.query_selector_all('.card, .booking-card, .booking-item, [class*="booking"]')
-
-    # If we can't find cards, parse the whole page
-    page_html = await page.content()
-
-    # Extract booking blocks via regex patterns
-    # Pattern: trek name, date, slot, ticket no, order id
-    trek_blocks = re.findall(
-        r'(Booked|Cancelled).*?'
-        r'(?:Trek|trek)[^<]*?<[^>]*>([^<]+)<'
-        r'.*?District\s*:?\s*([^\n<]+)'
-        r'.*?(\d{2}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}|\d{2}-\d{2}-\d{4})'
-        r'.*?Slot\s*:?\s*([^\n<"]+?(?:AM|PM|am|pm))'
-        r'.*?Ticket\s*No[:\s]*([^\s<,]+)'
-        r'.*?Order\s*Id[:\s]*([^\s<,]+)',
-        page_html, re.DOTALL | re.IGNORECASE
-    )
-
-    # Simpler approach: get all text blocks
-    booking_entries = await page.evaluate("""() => {
+    # Parse booking cards — find smallest DOM elements containing "Ticket No"
+    bookings = await page.evaluate("""() => {
         const results = [];
-        // Try to find booking cards
-        const selectors = [
-            '.card', '.booking-card', '.trek-booking',
-            '[class*="booking"]', '[class*="trek-card"]',
-            'div.col-md-12 > div', '.row > .col-md-9'
-        ];
-        let cards = [];
-        for (const sel of selectors) {
-            const els = document.querySelectorAll(sel);
-            if (els.length > 0) { cards = Array.from(els); break; }
-        }
+        const seen = new Set();
+        for (const el of document.querySelectorAll('*')) {
+            const txt = el.innerText || '';
+            if (!txt.includes('Ticket No') || txt.length > 5000) continue;
+            // Keep only the tightest (innermost) container
+            if (el.parentElement && (el.parentElement.innerText || '').includes('Ticket No')) continue;
+            if (seen.has(el)) continue;
+            seen.add(el);
 
-        // Fallback: find all elements containing "Ticket No"
-        if (cards.length === 0) {
-            const all = document.querySelectorAll('*');
-            for (const el of all) {
-                if (el.children.length < 20 && el.innerText &&
-                    el.innerText.includes('Ticket No') && el.innerText.length < 2000) {
-                    cards.push(el);
-                }
+            // Trek name: first capitalised line that isn't a label
+            let trekName = '';
+            for (const line of txt.split('\\n')) {
+                const l = line.trim();
+                if (!l || l.toLowerCase().includes('booked') || l.includes(':') || l.length < 4) continue;
+                if (/^[A-Z]/.test(l)) { trekName = l; break; }
             }
-        }
 
-        for (const card of cards) {
-            const text = card.innerText || '';
-            if (!text.includes('Ticket No')) continue;
+            const get = (re) => { const m = txt.match(re); return m ? m[1].trim() : ''; };
             results.push({
-                text: text.trim(),
-                html: card.innerHTML
+                trekName: trekName || 'Unknown Trek',
+                district: get(/District\\s*[:\\s]+([^\\n]+)/i),
+                date:     get(/(\\d{2}[-/]\\d{2}[-/]\\d{2,4})/),
+                slot:     get(/Slot\\s*[:\\s]+([^\\n]+)/i),
+                ticketNo: get(/Ticket\\s*No[:\\s.]*(\\S+)/i),
+                orderId:  get(/Order\\s*Id[:\\s.]*(\\S+)/i),
+                visitors: [],
             });
         }
         return results;
     }""")
 
-    # Parse each booking entry
-    for entry in booking_entries:
-        text = entry.get('text', '')
-        booking = _parse_booking_text(text)
-        if booking:
-            bookings.append(booking)
+    print(INFO(f"   [{label}] Found {len(bookings)} booking card(s)"))
 
-    # Now click each "View Visitors" button and collect visitor data
+    # Click each "View Visitors" and collect visitor data
+    view_btns = await page.locator('button:has-text("View Visitors"), a:has-text("View Visitors")').all()
     for i, btn in enumerate(view_btns):
         try:
             await btn.click()
-            await page.wait_for_timeout(1200)
-
+            await page.wait_for_timeout(1500)
             visitors = await _scrape_visitor_table(page)
-            if visitors and i < len(bookings):
+            if i < len(bookings):
                 bookings[i]['visitors'] = visitors
-            elif visitors:
-                bookings.append({'visitors': visitors})
+            # Close modal if one opened
+            for close_sel in [
+                'button:has-text("Close")', 'button.close',
+                '[data-dismiss="modal"]', '.modal-close',
+                'button:has-text("×")', 'button[aria-label="Close"]',
+            ]:
+                try:
+                    cl = page.locator(close_sel).first
+                    if await cl.count() > 0:
+                        await cl.click()
+                        await page.wait_for_timeout(500)
+                        break
+                except Exception:
+                    pass
         except Exception as e:
-            print(WARN(f"   [{label}] View Visitors click {i+1} failed: {e}"))
+            print(WARN(f"   [{label}] View Visitors {i+1} failed: {e}"))
 
-    # If no bookings parsed from HTML, at least return visitor data we found
-    if not bookings:
-        # Try getting booking info from URL params or page title
-        try:
-            title_els = await page.query_selector_all('h5, h4, h3, .trek-name, [class*="trek-name"]')
-            for el in title_els:
-                txt = await el.inner_text()
-                if 'trek' in txt.lower():
-                    bookings.append({'trekName': txt.strip(), 'visitors': []})
-        except Exception:
-            pass
-
-    print(OK(f"   [{label}] Found {len(bookings)} booking(s)"))
+    print(OK(f"   [{label}] Done — {sum(len(b.get('visitors',[])) for b in bookings)} visitor(s) total"))
     return bookings
 
-
-def _parse_booking_text(text: str) -> Optional[dict]:
-    """Extract structured booking info from card text."""
-    if not text or 'ticket' not in text.lower():
-        return None
-
-    def find(pattern, default=''):
-        m = re.search(pattern, text, re.IGNORECASE)
-        return m.group(1).strip() if m else default
-
-    trek_name = find(r'^([A-Z][^\n]+Trek[^\n]*)', '')
-    if not trek_name:
-        # Try to get first non-empty line that looks like a trek name
-        for line in text.split('\n'):
-            line = line.strip()
-            if line and ('trek' in line.lower() or 'peak' in line.lower() or 'betta' in line.lower()):
-                trek_name = line
-                break
-
-    date = find(r'(\d{2}-\d{2}-\d{2,4}|\d{2}/\d{2}/\d{2,4})')
-    slot = find(r'Slot\s*[:\s]*([^\n]+(?:AM|PM|am|pm))')
-    ticket_no = find(r'Ticket\s*No[:\s.]*([A-Z0-9]+)')
-    order_id = find(r'Order\s*Id[:\s.]*([A-Z0-9]+)')
-    district = find(r'District\s*[:\s]*([^\n]+)')
-
-    return {
-        'trekName':  trek_name or 'Unknown Trek',
-        'date':      date,
-        'slot':      slot,
-        'ticketNo':  ticket_no,
-        'orderId':   order_id,
-        'district':  district,
-        'visitors':  [],
-    }
 
 
 async def _scrape_visitor_table(page: Page) -> list:
