@@ -2967,6 +2967,57 @@ async def get_credential_count(user: dict = Depends(get_current_user)):
     return {"total": total, "active": active}
 
 
+# ── Ticket audit: server-side run ─────────────────────────────────────────────
+_audit_task: Optional[asyncio.Task] = None
+
+
+@api_router.post("/ticket-audit/run")
+async def trigger_audit(
+    limit: int = 0,
+    concurrency: int = 3,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    global _audit_task
+    if _audit_task and not _audit_task.done():
+        raise HTTPException(status_code=409, detail="An audit is already running")
+    try:
+        from ticket_audit_runner import run_audit as _run_audit
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail=f"Playwright not available on this server: {exc}")
+
+    async def _do_run():
+        try:
+            await _run_audit(db, limit=limit, concurrency=concurrency)
+        except Exception as exc:
+            try:
+                db.collection("aranya_audit_reports").document("run_status").set({
+                    "status": "error",
+                    "message": str(exc),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
+
+    _audit_task = asyncio.create_task(_do_run())
+    return {"status": "started", "message": "Audit started"}
+
+
+@api_router.get("/ticket-audit/run/status")
+async def get_audit_run_status(user: dict = Depends(get_current_user)):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        return {"status": "idle", "message": "DB not available"}
+    doc = await fs_run(
+        lambda: db.collection("aranya_audit_reports").document("run_status").get()
+    )
+    if doc and doc.exists:
+        return doc.to_dict()
+    return {"status": "idle", "message": "No audit run yet"}
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
