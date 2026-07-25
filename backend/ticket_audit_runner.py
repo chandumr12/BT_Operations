@@ -7,7 +7,6 @@ import asyncio
 import io
 import re
 from datetime import datetime, timezone
-from typing import Optional
 
 from playwright.async_api import async_playwright, Page, Browser
 
@@ -233,7 +232,8 @@ async def _do_login(page: Page, email: str, password: str) -> bool:
         await page.click('button[type="submit"]')
         await page.wait_for_timeout(2500)
 
-        if any(x in page.url for x in ["/dashboard", "/my-booking", "/upcoming", "/profile"]):
+        # /bookinginfo is the real post-login URL (not /my-booking/upcoming)
+        if any(x in page.url for x in ["/bookinginfo", "/dashboard", "/my-booking", "/profile"]):
             return True
 
         body = await page.inner_text("body")
@@ -243,7 +243,7 @@ async def _do_login(page: Page, email: str, password: str) -> bool:
             continue
 
         try:
-            if await page.locator('a:has-text("Logout"), a:has-text("My Booking")').count() > 0:
+            if await page.locator('a:has-text("Logout"), a:has-text("My Bookings"), a:has-text("Upcoming Treks")').count() > 0:
                 return True
         except Exception:
             pass
@@ -252,28 +252,6 @@ async def _do_login(page: Page, email: str, password: str) -> bool:
 
 
 # ── Scraping ───────────────────────────────────────────────────────────────────
-
-def _parse_booking_text(text: str) -> Optional[dict]:
-    if not text or 'ticket' not in text.lower():
-        return None
-    def find(pattern, default=''):
-        m = re.search(pattern, text, re.IGNORECASE)
-        return m.group(1).strip() if m else default
-    trek_name = ''
-    for line in text.split('\n'):
-        line = line.strip()
-        if line and any(k in line.lower() for k in ['trek', 'peak', 'betta', 'gudda']):
-            trek_name = line
-            break
-    return {
-        'trekName': trek_name or 'Unknown Trek',
-        'date':     find(r'(\d{2}[-/]\d{2}[-/]\d{2,4})'),
-        'slot':     find(r'Slot\s*[:\s]*([^\n]+(?:AM|PM|am|pm))'),
-        'ticketNo': find(r'Ticket\s*No[:\s.]*([A-Z0-9]+)'),
-        'orderId':  find(r'Order\s*Id[:\s.]*([A-Z0-9]+)'),
-        'district': find(r'District\s*[:\s]*([^\n]+)'),
-        'visitors': [],
-    }
 
 
 async def _scrape_visitor_table(page: Page) -> list:
@@ -299,47 +277,94 @@ async def _scrape_visitor_table(page: Page) -> list:
 
 
 async def _scrape_upcoming(page: Page) -> list:
-    try:
-        await page.goto(BASE_URL + "/my-booking/upcoming", wait_until="domcontentloaded", timeout=20000)
-    except Exception:
-        pass
-    await page.wait_for_timeout(1500)
+    # /bookinginfo is the correct post-login page for upcoming treks
+    # (/my-booking/upcoming gives 404)
+    if '/bookinginfo' not in page.url:
+        try:
+            await page.goto(BASE_URL + "/bookinginfo", wait_until="domcontentloaded", timeout=20000)
+            await page.wait_for_timeout(1500)
+        except Exception:
+            pass
 
-    view_btns = await page.query_selector_all('button:text("View Visitors"), a:text("View Visitors")')
-
-    entries = await page.evaluate("""() => {
+    # Parse booking cards — each card has: trek name heading, District, Slot, Ticket No, Order Id
+    bookings = await page.evaluate("""() => {
         const results = [];
-        let cards = [];
-        for (const sel of ['.card', '.booking-card', '[class*="booking"]']) {
-            const els = document.querySelectorAll(sel);
-            if (els.length > 0) { cards = Array.from(els); break; }
-        }
-        if (cards.length === 0) {
-            for (const el of document.querySelectorAll('*')) {
-                if (el.children.length < 20 && el.innerText?.includes('Ticket No') && el.innerText.length < 2000)
-                    cards.push(el);
+
+        // Find the smallest ancestor elements that each contain "Ticket No" text
+        // (these are the individual booking cards)
+        const seen = new Set();
+        const candidates = [];
+        for (const el of document.querySelectorAll('*')) {
+            const txt = el.innerText || '';
+            if (!txt.includes('Ticket No') || txt.length > 5000) continue;
+            // Prefer the tightest (smallest) container
+            if (el.parentElement && (el.parentElement.innerText || '').includes('Ticket No')) continue;
+            if (!seen.has(el)) {
+                seen.add(el);
+                candidates.push(el);
             }
         }
-        for (const card of cards) {
+
+        for (const card of candidates) {
             const text = card.innerText || '';
-            if (text.includes('Ticket No')) results.push({ text: text.trim() });
+
+            // Trek name: first non-empty line that looks like a proper name
+            // (not a label like "District :", "Booked", etc.)
+            let trekName = '';
+            for (const line of text.split('\\n')) {
+                const l = line.trim();
+                if (!l || l.toLowerCase().includes('booked') || l.includes(':') || l.length < 4) continue;
+                if (/^[A-Z]/.test(l) && l.length > 3) { trekName = l; break; }
+            }
+
+            const get = (re) => { const m = text.match(re); return m ? m[1].trim() : ''; };
+
+            results.push({
+                trekName: trekName || 'Unknown Trek',
+                district: get(/District\\s*[:\\s]+([^\\n]+)/i),
+                date:     get(/(\\d{2}[-/]\\d{2}[-/]\\d{2,4})/),
+                slot:     get(/Slot\\s*[:\\s]+([^\\n]+)/i),
+                ticketNo: get(/Ticket\\s*No[:\\s.]*(\\S+)/i),
+                orderId:  get(/Order\\s*Id[:\\s.]*(\\S+)/i),
+                visitors: [],
+                _el_index: results.length,
+            });
         }
         return results;
     }""")
 
-    bookings = []
-    for e in entries:
-        b = _parse_booking_text(e.get('text', ''))
-        if b:
-            bookings.append(b)
+    if not bookings:
+        return []
+
+    # Click each "View Visitors" button and collect visitor data
+    view_btns = await page.locator('button:has-text("View Visitors"), a:has-text("View Visitors")').all()
 
     for i, btn in enumerate(view_btns):
         try:
             await btn.click()
-            await page.wait_for_timeout(1200)
+            await page.wait_for_timeout(1500)
+
             visitors = await _scrape_visitor_table(page)
-            if visitors and i < len(bookings):
+            if i < len(bookings):
                 bookings[i]['visitors'] = visitors
+
+            # Close any modal that opened
+            for close_sel in [
+                'button:has-text("Close")',
+                'button.close',
+                '[data-dismiss="modal"]',
+                '.modal-close',
+                'button:has-text("×")',
+                'button[aria-label="Close"]',
+            ]:
+                try:
+                    cl = page.locator(close_sel).first
+                    if await cl.count() > 0:
+                        await cl.click()
+                        await page.wait_for_timeout(500)
+                        break
+                except Exception:
+                    pass
         except Exception:
             pass
 
