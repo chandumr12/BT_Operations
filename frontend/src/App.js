@@ -35,6 +35,7 @@ import VehicleView      from '@/pages/VehicleView';
 import LeadView         from '@/pages/LeadView';
 import TrekWatcher      from '@/pages/TrekWatcher';
 import LeadAvailability from '@/pages/LeadAvailability';
+import TicketAudit      from '@/pages/TicketAudit';
 
 // ── Finance pages (from bt-finance, now integrated) ─────────────────────────
 import FinanceDashboard       from '@/pages/finance/FinanceDashboard';
@@ -204,6 +205,12 @@ function App() {
           <Route path="/trek-watcher" element={
             <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
               <Layout><TrekWatcher /></Layout>
+            </ProtectedRoute>
+          } />
+
+          <Route path="/ticket-audit" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><TicketAudit /></Layout>
             </ProtectedRoute>
           } />
 

@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Mountain, Calendar, Users, CheckSquare,
   UserCog, LogOut, Settings as SettingsIcon, Ticket, BarChart3,
   Bell, X, CalendarDays, Gift, Tag, UsersRound, TrendingUp, Hotel, ClipboardList, Truck,
-  Trophy, ExternalLink, Eye, CalendarCheck,
+  Trophy, ExternalLink, Eye, CalendarCheck, ScanSearch,
   // Finance icons
   DollarSign, Receipt, CreditCard, Users2, FileText, BookOpen, ChevronDown, ChevronRight,
 } from 'lucide-react';
@@ -35,6 +35,7 @@ const opsMenu = [
   { path: '/packing-lists',      icon: ClipboardList,  label: 'Packing Lists',     roles: ['Super Admin', 'Operations Manager'] },
   { path: '/vehicle-allocation', icon: Truck,          label: 'Vehicle Allocation', roles: ['Super Admin', 'Operations Manager'] },
   { path: '/trek-watcher',       icon: Eye,            label: 'Trek Watcher',       roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/ticket-audit',       icon: ScanSearch,     label: 'Ticket Audit',       roles: ['Super Admin', 'Operations Manager'] },
   { path: '/my-availability',    icon: CalendarCheck,  label: 'My Availability',    roles: ['Trek Lead', 'Coordinator', 'Operations Manager', 'Super Admin'] },
 ];
 
