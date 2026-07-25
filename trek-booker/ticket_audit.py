@@ -69,75 +69,114 @@ BOLD = lambda t: clr(t, "1")
 
 
 # ── CAPTCHA solver ────────────────────────────────────────────────────────────
-async def _read_captcha_dom(page: Page) -> str:
-    """Try to read CAPTCHA text directly from a DOM element (fastest path)."""
-    candidates = [
-        ".captcha-text", "#captcha", "[class*='captcha']",
-        "canvas + span", ".captcha",
+async def _read_captcha_input_value(page: Page) -> str:
+    """Primary: CAPTCHA display is a readonly input whose .value holds the code."""
+    selectors = [
+        'input[readonly]',
+        'input[disabled]',
+        'input[name*="captcha" i]:not([placeholder])',
+        'input[id*="captcha" i]:not([placeholder])',
+        'input[class*="captcha" i]:not([placeholder])',
     ]
-    for sel in candidates:
+    for sel in selectors:
         try:
-            el = page.locator(sel).first
-            if await el.count() > 0:
-                txt = (await el.inner_text()).strip()
-                txt = re.sub(r'\s+', '', txt)
-                if 4 <= len(txt) <= 8 and txt.isalnum():
-                    return txt
+            locs = page.locator(sel)
+            for i in range(await locs.count()):
+                val = re.sub(r'[^A-Za-z0-9]', '', (await locs.nth(i).input_value()).strip())
+                if 4 <= len(val) <= 8:
+                    print(INFO(f"      [CAPTCHA] input.value → '{val}'"))
+                    return val
         except Exception:
             pass
-    return ""
+    return ''
 
 
-async def _read_captcha_ocr(page: Page) -> str:
-    """Screenshot the captcha image and OCR it."""
+async def _read_captcha_dom_js(page: Page) -> str:
+    """JS evaluate: covers input.value + innerText + captcha-named elements."""
+    try:
+        text = await page.evaluate("""() => {
+            for (const el of document.querySelectorAll('input[readonly], input[disabled]')) {
+                const v = (el.value || '').trim().replace(/\\s+/g, '');
+                if (/^[A-Za-z0-9]{4,8}$/.test(v)) return v;
+            }
+            for (const el of document.querySelectorAll('[class*="captcha" i], [id*="captcha" i]')) {
+                const txt = (el.value || el.innerText || '').trim().replace(/\\s+/g, '');
+                if (/^[A-Za-z0-9]{4,8}$/.test(txt)) return txt;
+                for (const c of el.querySelectorAll('*')) {
+                    const ct = (c.value || c.innerText || '').trim().replace(/\\s+/g, '');
+                    if (/^[A-Za-z0-9]{4,8}$/.test(ct)) return ct;
+                }
+            }
+            for (const el of document.querySelectorAll('div,span,p,td,label,b,strong,code')) {
+                if (el.children.length > 0) continue;
+                const txt = (el.innerText || '').trim().replace(/\\s+/g, '');
+                if (/^[A-Za-z0-9]{4,8}$/.test(txt)) return txt;
+            }
+            return '';
+        }""")
+        text = re.sub(r'[^A-Za-z0-9]', '', text or '')
+        if 4 <= len(text) <= 8:
+            print(INFO(f"      [CAPTCHA] JS DOM → '{text}'"))
+            return text
+    except Exception:
+        pass
+    return ''
+
+
+async def _read_captcha_screenshot_ocr(page: Page) -> str:
+    """Screenshot the CAPTCHA display element and OCR it."""
     try:
         import pytesseract
         from PIL import Image, ImageFilter, ImageEnhance
 
-        selectors = [
+        display_selectors = [
+            'input[readonly]', 'input[disabled]',
+            '[class*="captcha" i]:not([placeholder])',
+            '[id*="captcha" i]:not([placeholder])',
             'img[alt*="captcha" i]', 'img[src*="captcha" i]',
-            'canvas[id*="captcha" i]', '.captcha img',
-            'img[alt="CAPTCHA"]',
+            'canvas[id*="captcha" i]',
         ]
-        el = None
-        for sel in selectors:
-            loc = page.locator(sel).first
-            if await loc.count() > 0:
-                el = loc
-                break
-
-        if el is None:
-            return ""
-
-        data = await el.screenshot()
-        img = Image.open(io.BytesIO(data)).convert("L")
-        # Upscale + sharpen for better OCR
-        img = img.resize((img.width * 3, img.height * 3), Image.LANCZOS)
-        img = ImageEnhance.Contrast(img).enhance(2.5)
-        img = img.filter(ImageFilter.SHARPEN)
-
-        cfg = "--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-        text = pytesseract.image_to_string(img, config=cfg).strip()
-        text = re.sub(r'[^A-Za-z0-9]', '', text)
-        return text
+        for sel in display_selectors:
+            try:
+                loc = page.locator(sel).first
+                if await loc.count() == 0:
+                    continue
+                try:
+                    val = re.sub(r'[^A-Za-z0-9]', '', (await loc.input_value()).strip())
+                    if 4 <= len(val) <= 8:
+                        return val
+                except Exception:
+                    pass
+                data = await loc.screenshot()
+                if not data:
+                    continue
+                img = Image.open(io.BytesIO(data)).convert('L')
+                scale = max(3, 60 // img.height) if img.height < 60 else 3
+                img = img.resize((img.width * scale, img.height * scale), Image.LANCZOS)
+                img = ImageEnhance.Contrast(img).enhance(3.0)
+                img = ImageEnhance.Sharpness(img).enhance(2.0)
+                img = img.filter(ImageFilter.SHARPEN)
+                cfg = "--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+                result = re.sub(r'[^A-Za-z0-9]', '', pytesseract.image_to_string(img, config=cfg).strip())
+                if 4 <= len(result) <= 8:
+                    print(INFO(f"      [CAPTCHA] OCR → '{result}'"))
+                    return result
+            except Exception:
+                continue
     except Exception as e:
         print(WARN(f"   [OCR] {e}"))
-        return ""
+    return ''
 
 
 async def solve_captcha(page: Page) -> str:
-    # 1. Try reading the text directly from the DOM element (fastest, no OCR needed)
-    text = await _read_captcha_text_element(page)
+    """Three-tier: input.value → JS DOM scan → screenshot OCR."""
+    text = await _read_captcha_input_value(page)
     if text:
-        print(INFO(f"      [CAPTCHA] Read from DOM: '{text}'"))
         return text
-    # 2. Try CSS/aria attributes
-    text = await _read_captcha_dom(page)
+    text = await _read_captcha_dom_js(page)
     if text:
-        print(INFO(f"      [CAPTCHA] Read from attr: '{text}'"))
         return text
-    # 3. Screenshot + OCR (requires tesseract)
-    return await _read_captcha_ocr(page)
+    return await _read_captcha_screenshot_ocr(page)
 
 
 async def _refresh_captcha(page: Page):
@@ -153,34 +192,6 @@ async def _refresh_captcha(page: Page):
             pass
 
 
-# ── Read CAPTCHA text directly from the DOM span/div ─────────────────────────
-async def _read_captcha_text_element(page: Page) -> str:
-    """The Aranya Vihaara CAPTCHA renders its code as plain text in a styled box.
-    Try reading it directly from the element before falling back to OCR."""
-    try:
-        text = await page.evaluate("""() => {
-            // The CAPTCHA box sits beside the refresh icon — find the element
-            // that contains only alphanumeric text of length 4-8
-            const candidates = [
-                ...document.querySelectorAll('div, span, p, td, label')
-            ];
-            for (const el of candidates) {
-                const txt = (el.innerText || '').trim().replace(/\\s+/g, '');
-                if (/^[A-Za-z0-9]{4,8}$/.test(txt) && el.children.length === 0) {
-                    // Make sure it's near a captcha-related parent
-                    const parent = el.closest('[class*="captcha" i], [id*="captcha" i]') ||
-                                   el.parentElement;
-                    if (parent) return txt;
-                }
-            }
-            return '';
-        }""")
-        text = re.sub(r'[^A-Za-z0-9]', '', text or '')
-        if 4 <= len(text) <= 8:
-            return text
-    except Exception:
-        pass
-    return ''
 
 
 # ── Login ─────────────────────────────────────────────────────────────────────

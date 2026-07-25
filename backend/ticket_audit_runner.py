@@ -15,18 +15,72 @@ BASE_URL = "https://aranyavihaara.karnataka.gov.in"
 
 
 # ── CAPTCHA helpers ────────────────────────────────────────────────────────────
+# The Aranya Vihaara CAPTCHA is plain text in a readonly <input> box.
+# el.innerText is empty for inputs — must use el.value. Multiple strategies below.
 
-async def _read_captcha_text_element(page: Page) -> str:
+async def _read_captcha_input_value(page: Page) -> str:
+    """
+    Primary strategy: the CAPTCHA display is a readonly <input> whose .value
+    holds the code (e.g. 'Ry6RU'). Use Playwright's input_value() API.
+    """
+    # Specific selectors for the captcha display input (NOT the 'Enter Captcha' field)
+    selectors = [
+        'input[readonly]',
+        'input[disabled]',
+        'input[name*="captcha" i]:not([placeholder])',
+        'input[id*="captcha" i]:not([placeholder])',
+        'input[class*="captcha" i]:not([placeholder])',
+    ]
+    for sel in selectors:
+        try:
+            locs = page.locator(sel)
+            count = await locs.count()
+            for i in range(count):
+                loc = locs.nth(i)
+                val = await loc.input_value()
+                val = re.sub(r'[^A-Za-z0-9]', '', val.strip())
+                if 4 <= len(val) <= 8:
+                    return val
+        except Exception:
+            pass
+    return ''
+
+
+async def _read_captcha_dom_js(page: Page) -> str:
+    """
+    JS evaluate covering:
+      1. input.value for readonly/disabled inputs
+      2. elements with 'captcha' in class/id
+      3. leaf elements with short alphanumeric innerText
+    """
     try:
         text = await page.evaluate("""() => {
-            const candidates = [...document.querySelectorAll('div, span, p, td, label')];
-            for (const el of candidates) {
-                const txt = (el.innerText || '').trim().replace(/\\s+/g, '');
-                if (/^[A-Za-z0-9]{4,8}$/.test(txt) && el.children.length === 0) {
-                    const parent = el.closest('[class*="captcha" i], [id*="captcha" i]') || el.parentElement;
-                    if (parent) return txt;
+            // 1. Readonly / disabled inputs → .value (innerText is empty for inputs)
+            for (const el of document.querySelectorAll('input[readonly], input[disabled]')) {
+                const v = (el.value || '').trim().replace(/\\s+/g, '');
+                if (/^[A-Za-z0-9]{4,8}$/.test(v)) return v;
+            }
+
+            // 2. Any element with 'captcha' in class or id
+            for (const el of document.querySelectorAll('[class*="captcha" i], [id*="captcha" i]')) {
+                const txt = (el.value || el.innerText || '').trim().replace(/\\s+/g, '');
+                if (/^[A-Za-z0-9]{4,8}$/.test(txt)) return txt;
+                // Check direct children
+                for (const c of el.querySelectorAll('*')) {
+                    const ct = (c.value || c.innerText || '').trim().replace(/\\s+/g, '');
+                    if (/^[A-Za-z0-9]{4,8}$/.test(ct)) return ct;
                 }
             }
+
+            // 3. Leaf elements with short alnum text (div/span/b/strong/code/td/p)
+            for (const el of document.querySelectorAll(
+                'div, span, p, td, label, b, strong, code, li'
+            )) {
+                if (el.children.length > 0) continue;
+                const txt = (el.innerText || '').trim().replace(/\\s+/g, '');
+                if (/^[A-Za-z0-9]{4,8}$/.test(txt)) return txt;
+            }
+
             return '';
         }""")
         text = re.sub(r'[^A-Za-z0-9]', '', text or '')
@@ -37,45 +91,85 @@ async def _read_captcha_text_element(page: Page) -> str:
     return ''
 
 
-async def _read_captcha_dom(page: Page) -> str:
-    for sel in [".captcha-text", "#captcha", "[class*='captcha']", "canvas + span", ".captcha"]:
-        try:
-            el = page.locator(sel).first
-            if await el.count() > 0:
-                txt = re.sub(r'\s+', '', (await el.inner_text()).strip())
-                if 4 <= len(txt) <= 8 and txt.isalnum():
-                    return txt
-        except Exception:
-            pass
-    return ""
-
-
-async def _read_captcha_ocr(page: Page) -> str:
+async def _read_captcha_screenshot_ocr(page: Page) -> str:
+    """
+    Screenshot the CAPTCHA display element and run pytesseract OCR on it.
+    Works both for readonly-input style and image-based CAPTCHAs.
+    """
     try:
         import pytesseract
         from PIL import Image, ImageFilter, ImageEnhance
-        for sel in ['img[alt*="captcha" i]', 'img[src*="captcha" i]', '.captcha img']:
-            loc = page.locator(sel).first
-            if await loc.count() > 0:
-                img = Image.open(io.BytesIO(await loc.screenshot())).convert("L")
-                img = img.resize((img.width * 3, img.height * 3), Image.LANCZOS)
-                img = ImageEnhance.Contrast(img).enhance(2.5)
+
+        # Candidate selectors for the captcha DISPLAY box (not the entry field)
+        display_selectors = [
+            'input[readonly]',
+            'input[disabled]',
+            '[class*="captcha" i]:not([placeholder])',
+            '[id*="captcha" i]:not([placeholder])',
+            'img[alt*="captcha" i]',
+            'img[src*="captcha" i]',
+            'canvas[id*="captcha" i]',
+        ]
+
+        for sel in display_selectors:
+            try:
+                loc = page.locator(sel).first
+                if await loc.count() == 0:
+                    continue
+
+                # For input elements, try reading value directly first
+                try:
+                    val = await loc.input_value()
+                    val = re.sub(r'[^A-Za-z0-9]', '', val.strip())
+                    if 4 <= len(val) <= 8:
+                        return val
+                except Exception:
+                    pass
+
+                # Screenshot + OCR
+                data = await loc.screenshot()
+                if not data:
+                    continue
+
+                img = Image.open(io.BytesIO(data)).convert('L')
+                # Upscale and sharpen for better OCR
+                scale = max(3, 60 // img.height) if img.height < 60 else 3
+                img = img.resize((img.width * scale, img.height * scale), Image.LANCZOS)
+                img = ImageEnhance.Contrast(img).enhance(3.0)
+                img = ImageEnhance.Sharpness(img).enhance(2.0)
                 img = img.filter(ImageFilter.SHARPEN)
-                cfg = "--psm 8 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-                return re.sub(r'[^A-Za-z0-9]', '', pytesseract.image_to_string(img, config=cfg).strip())
+
+                cfg = (
+                    "--psm 8 --oem 3 "
+                    "-c tessedit_char_whitelist="
+                    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+                )
+                result = re.sub(
+                    r'[^A-Za-z0-9]', '',
+                    pytesseract.image_to_string(img, config=cfg).strip()
+                )
+                if 4 <= len(result) <= 8:
+                    return result
+            except Exception:
+                continue
+
     except Exception:
         pass
-    return ""
+    return ''
 
 
 async def _solve_captcha(page: Page) -> str:
-    text = await _read_captcha_text_element(page)
+    """Three-tier CAPTCHA solving: input.value → JS DOM scan → screenshot OCR."""
+    # 1. Playwright input_value() on readonly inputs (fastest, most reliable)
+    text = await _read_captcha_input_value(page)
     if text:
         return text
-    text = await _read_captcha_dom(page)
+    # 2. JS evaluate — covers innerText + input.value in one pass
+    text = await _read_captcha_dom_js(page)
     if text:
         return text
-    return await _read_captcha_ocr(page)
+    # 3. Screenshot + pytesseract OCR (last resort)
+    return await _read_captcha_screenshot_ocr(page)
 
 
 async def _refresh_captcha(page: Page):
