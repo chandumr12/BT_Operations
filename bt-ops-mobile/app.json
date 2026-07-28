@@ -34,6 +34,19 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8c3ae73e-1af0-422e-a629-faa0b9c94231"
+      }
+    },
+    "owner": "tusharkraysads-team",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8c3ae73e-1af0-422e-a629-faa0b9c94231"
     }
   }
 }
