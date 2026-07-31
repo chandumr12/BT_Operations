@@ -2857,6 +2857,167 @@ async def get_leads_for_batch(
     return matched
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Aranya Vihaara Ticket Audit — credential management + report endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AranyaCredential(BaseModel):
+    email: str
+    password: str
+    label: Optional[str] = None
+    active: bool = True
+
+class AranyaCredentialUpdate(BaseModel):
+    email:    Optional[str] = None
+    password: Optional[str] = None
+    label:    Optional[str] = None
+    active:   Optional[bool] = None
+
+
+@api_router.get("/ticket-audit/credentials")
+async def list_aranya_credentials(user: dict = Depends(get_current_user)):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        return []
+    docs = await fs_run(
+        lambda: list(db.collection("aranya_credentials").stream()), default=[]
+    )
+    result = []
+    for d in docs:
+        row = d.to_dict()
+        row["id"] = d.id
+        row.pop("password", None)   # never return passwords to frontend
+        result.append(row)
+    return result
+
+
+@api_router.post("/ticket-audit/credentials")
+async def add_aranya_credential(
+    body: AranyaCredential,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        raise HTTPException(status_code=500, detail="DB not initialised")
+    data = body.model_dump()
+    data["createdAt"] = datetime.now(timezone.utc).isoformat()
+    data["createdBy"] = user["uid"]
+    if not data.get("label"):
+        data["label"] = data["email"].split("@")[0]
+    ref = db.collection("aranya_credentials").document()
+    ref.set(data)
+    return {"id": ref.id, "email": data["email"], "label": data["label"]}
+
+
+@api_router.patch("/ticket-audit/credentials/{cred_id}")
+async def update_aranya_credential(
+    cred_id: str,
+    body: AranyaCredentialUpdate,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        raise HTTPException(status_code=500, detail="DB not initialised")
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    patch["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    db.collection("aranya_credentials").document(cred_id).update(patch)
+    return {"ok": True}
+
+
+@api_router.delete("/ticket-audit/credentials/{cred_id}")
+async def delete_aranya_credential(
+    cred_id: str,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        raise HTTPException(status_code=500, detail="DB not initialised")
+    db.collection("aranya_credentials").document(cred_id).delete()
+    return {"ok": True}
+
+
+@api_router.get("/ticket-audit/report")
+async def get_audit_report(user: dict = Depends(get_current_user)):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        return {}
+    doc = await fs_run(
+        lambda: db.collection("aranya_audit_reports").document("latest").get()
+    )
+    if doc and doc.exists:
+        return doc.to_dict()
+    return {}
+
+
+@api_router.get("/ticket-audit/credential-count")
+async def get_credential_count(user: dict = Depends(get_current_user)):
+    """Returns just the count — safe to call without exposing passwords."""
+    if not db:
+        return {"total": 0, "active": 0}
+    docs = await fs_run(
+        lambda: list(db.collection("aranya_credentials").stream()), default=[]
+    )
+    total = len(docs)
+    active = sum(1 for d in docs if d.to_dict().get("active", True))
+    return {"total": total, "active": active}
+
+
+# ── Ticket audit: server-side run ─────────────────────────────────────────────
+_audit_task: Optional[asyncio.Task] = None
+
+
+@api_router.post("/ticket-audit/run")
+async def trigger_audit(
+    limit: int = 0,
+    concurrency: int = 3,
+    user: dict = Depends(get_current_user),
+):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    global _audit_task
+    if _audit_task and not _audit_task.done():
+        raise HTTPException(status_code=409, detail="An audit is already running")
+    try:
+        from ticket_audit_runner import run_audit as _run_audit
+    except ImportError as exc:
+        raise HTTPException(status_code=500, detail=f"Playwright not available on this server: {exc}")
+
+    async def _do_run():
+        try:
+            await _run_audit(db, limit=limit, concurrency=concurrency)
+        except Exception as exc:
+            try:
+                db.collection("aranya_audit_reports").document("run_status").set({
+                    "status": "error",
+                    "message": str(exc),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:
+                pass
+
+    _audit_task = asyncio.create_task(_do_run())
+    return {"status": "started", "message": "Audit started"}
+
+
+@api_router.get("/ticket-audit/run/status")
+async def get_audit_run_status(user: dict = Depends(get_current_user)):
+    if user.get("role") not in ["Super Admin", "Operations Manager"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    if not db:
+        return {"status": "idle", "message": "DB not available"}
+    doc = await fs_run(
+        lambda: db.collection("aranya_audit_reports").document("run_status").get()
+    )
+    if doc and doc.exists:
+        return doc.to_dict()
+    return {"status": "idle", "message": "No audit run yet"}
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
