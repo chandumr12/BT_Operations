@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Trek Protocol | BT Ops</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --slate-900: #0f172a;
+    --slate-700: #334155;
+    --slate-500: #64748b;
+    --slate-400: #94a3b8;
+    --slate-200: #e2e8f0;
+    --slate-100: #f1f5f9;
+    --slate-50: #f8fafc;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--slate-50);
+    color: var(--slate-900);
+    padding: 24px 16px 60px;
+  }
+  .page { max-width: 560px; margin: 0 auto; }
+  .hero {
+    background: linear-gradient(135deg, #059669, #047857);
+    border-radius: 18px;
+    padding: 24px 22px;
+    color: white;
+    margin-bottom: 18px;
+  }
+  .hero .emoji { font-size: 34px; }
+  .hero h1 { font-size: 20px; margin: 10px 0 4px; }
+  .hero p { font-size: 13px; margin: 0; opacity: 0.85; }
+  .hero .meta { font-size: 11px; opacity: 0.7; margin-top: 10px; }
+
+  .actions { display: flex; gap: 10px; margin: -6px 0 18px; }
+  .pill-btn {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+    background: white; border: 1px solid var(--slate-200); color: var(--slate-700);
+    font-size: 13px; font-weight: 700; padding: 11px; border-radius: 12px; cursor: pointer;
+  }
+  .pill-btn.whatsapp { background: #25D366; border-color: transparent; color: white; text-decoration: none; }
+
+  .card {
+    background: white;
+    border-radius: 16px;
+    border: 1px solid var(--slate-200);
+    padding: 18px;
+    margin-bottom: 14px;
+  }
+  .card h2 { font-size: 14px; font-weight: 800; margin: 0 0 12px; color: var(--slate-900); }
+  .card ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  .card li { display: flex; align-items: flex-start; gap: 9px; font-size: 13.5px; color: var(--slate-700); line-height: 1.45; }
+  .card li .dot { flex-shrink: 0; width: 6px; height: 6px; margin-top: 6px; border-radius: 50%; background: var(--primary); }
+
+  .footer { text-align: center; font-size: 11px; color: var(--slate-400); margin-top: 22px; }
+
+  .state { text-align: center; padding: 60px 20px; color: var(--slate-500); }
+  .state .big { font-size: 34px; margin-bottom: 10px; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div id="loadingState" class="state">
+      <div class="big">🧭</div>
+      <div>Loading trek protocol…</div>
+    </div>
+
+    <div id="errorState" class="state hidden">
+      <div class="big">🧭</div>
+      <div>This protocol doesn't exist or may have been removed.</div>
+    </div>
+
+    <div id="content" class="hidden">
+      <div class="hero">
+        <div class="emoji" id="heroEmoji">🧭</div>
+        <h1 id="heroName">Trek Protocol</h1>
+        <p id="heroDesc"></p>
+        <div class="meta" id="heroMeta"></div>
+      </div>
+
+      <div class="actions">
+        <button class="pill-btn" id="copyBtn">📋 Copy Link</button>
+        <a class="pill-btn whatsapp" id="waBtn" target="_blank" rel="noopener">💬 Share</a>
+      </div>
+
+      <div id="sections"></div>
+
+      <div class="footer">Powered by BT Ops</div>
+    </div>
+  </div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCFl3n1PmSTN6eO4NdNDevIvFAmO78fV_M",
+    authDomain: "bengaluru-trekkers-ops.firebaseapp.com",
+    projectId: "bengaluru-trekkers-ops",
+    storageBucket: "bengaluru-trekkers-ops.firebasestorage.app",
+    messagingSenderId: "257754693783",
+    appId: "1:257754693783:web:56d100167617bc1ef769d2",
+  };
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  const itemName = (it) => (typeof it === "string" ? it : it?.name ?? "");
+
+  function show(id) {
+    ["loadingState", "errorState", "content"].forEach((x) =>
+      document.getElementById(x).classList.toggle("hidden", x !== id)
+    );
+  }
+
+  function fmtDate(ts) {
+    if (!ts) return '';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+  }
+
+  function renderSections(sections) {
+    const container = document.getElementById('sections');
+    container.innerHTML = '';
+    sections.forEach((section) => {
+      const items = (section.items || []).map(itemName).filter(Boolean);
+      if (!items.length) return;
+      const card = document.createElement('div');
+      card.className = 'card';
+      const ul = items.map(it => `<li><span class="dot"></span><span>${it}</span></li>`).join('');
+      card.innerHTML = `<h2>${section.title || ''}</h2><ul>${ul}</ul>`;
+      container.appendChild(card);
+    });
+  }
+
+  async function load() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id');
+    if (!id) { show('errorState'); return; }
+
+    try {
+      const snap = await getDoc(doc(db, 'trek_protocols', id));
+      if (!snap.exists()) { show('errorState'); return; }
+      const data = snap.data();
+      const sections = data.sections || [];
+
+      document.getElementById('heroEmoji').textContent = data.emoji || '🧭';
+      document.getElementById('heroName').textContent = data.name || 'Trek Protocol';
+      document.title = `${data.name || 'Trek Protocol'} | BT Ops`;
+      document.getElementById('heroDesc').textContent = data.description || (data.trekName ? `For ${data.trekName}` : 'Common across all treks');
+      const metaParts = [];
+      if (data.trekName) metaParts.push(data.trekName); else metaParts.push('Shared — all treks');
+      if (data.updatedAt) metaParts.push(`Updated ${fmtDate(data.updatedAt)}`);
+      document.getElementById('heroMeta').textContent = metaParts.join(' · ');
+
+      const shareText = encodeURIComponent(`🧭 *${data.name || 'Trek Protocol'}*\n\n👉 ${window.location.href}\n\n_Powered by BT Ops_`);
+      document.getElementById('waBtn').href = `https://wa.me/?text=${shareText}`;
+      document.getElementById('copyBtn').onclick = () => {
+        navigator.clipboard.writeText(window.location.href);
+        const btn = document.getElementById('copyBtn');
+        const original = btn.textContent;
+        btn.textContent = '✅ Copied!';
+        setTimeout(() => { btn.textContent = original; }, 1500);
+      };
+
+      renderSections(sections);
+      show('content');
+    } catch (e) {
+      console.error(e);
+      show('errorState');
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>

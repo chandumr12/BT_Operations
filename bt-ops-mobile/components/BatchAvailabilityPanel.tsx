@@ -119,7 +119,10 @@ export function BatchAvailabilityPanel() {
 
   const startAdd = (week: number, category: string) => {
     setEditingSlot(null);
-    setSlotForm({ deptDate: '', returnDate: '', trekName: '' });
+    // Pre-fill with the first day of the month currently being edited so a
+    // blank date field can't silently save under the wrong month/year — see
+    // date-validation note in saveSlot() below.
+    setSlotForm({ deptDate: viewMonth ? `${viewMonth}-01` : '', returnDate: '', trekName: '' });
     setAddingSlot({ week, category });
   };
   const startEdit = (slot: Slot) => {
@@ -129,22 +132,28 @@ export function BatchAvailabilityPanel() {
   };
   const cancelSlotForm = () => { setAddingSlot(null); setEditingSlot(null); };
 
-  const saveSlot = async () => {
-    if (!slotForm.deptDate.trim() || !slotForm.returnDate.trim()) {
-      Alert.alert('Dates required', 'Enter departure and return dates (YYYY-MM-DD).'); return;
-    }
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  /**
+   * Slots are filed under whichever `month` tab was active when they were
+   * created (a separate field from deptDate/returnDate) with nothing
+   * previously tying the two together — so a slot typed in under "August"
+   * could carry July dates and nothing would catch it. This validates the
+   * dates before every save so that mismatch can't be created going forward,
+   * and getSlotWarning() below flags any slot already in that state so
+   * legacy bad entries are visible (and fixable via Edit) instead of hidden.
+   */
+  const doSaveSlot = async (deptDate: string, returnDate: string, trekName: string, targetMonth: string) => {
     setSaving(true);
     try {
       if (editingSlot) {
         await api.patch(`/availability/slots/${editingSlot.id}`, {
-          deptDate: slotForm.deptDate.trim(), returnDate: slotForm.returnDate.trim(),
-          trekName: slotForm.trekName.trim() || null,
+          deptDate, returnDate, trekName: trekName || null,
         });
       } else if (addingSlot) {
         await api.post('/availability/slots', {
-          month: viewMonth, week: addingSlot.week, category: addingSlot.category,
-          deptDate: slotForm.deptDate.trim(), returnDate: slotForm.returnDate.trim(),
-          trekName: slotForm.trekName.trim() || null,
+          month: targetMonth, week: addingSlot.week, category: addingSlot.category,
+          deptDate, returnDate, trekName: trekName || null,
         });
       }
       cancelSlotForm();
@@ -153,6 +162,41 @@ export function BatchAvailabilityPanel() {
       Alert.alert('Error', e.response?.data?.detail ?? 'Could not save slot');
     } finally { setSaving(false); }
   };
+
+  const saveSlot = async () => {
+    const deptDate = slotForm.deptDate.trim();
+    const returnDate = slotForm.returnDate.trim();
+    const trekName = slotForm.trekName.trim();
+
+    if (!deptDate || !returnDate) {
+      Alert.alert('Dates required', 'Enter departure and return dates (YYYY-MM-DD).'); return;
+    }
+    if (!DATE_RE.test(deptDate) || !DATE_RE.test(returnDate)) {
+      Alert.alert('Invalid date format', 'Use YYYY-MM-DD, e.g. 2026-08-14.'); return;
+    }
+    if (returnDate < deptDate) {
+      Alert.alert('Return before departure', 'The return date can’t be earlier than the departure date. Double-check both dates.');
+      return;
+    }
+
+    const deptMonth = deptDate.slice(0, 7);
+    if (viewMonth && deptMonth !== viewMonth) {
+      Alert.alert(
+        'Date doesn’t match this month tab',
+        `You’re adding this under ${monthLabel(viewMonth)}, but the departure date (${dayLabel(deptDate)}) falls in a different month. Save anyway?`,
+        [
+          { text: 'Fix dates', style: 'cancel' },
+          { text: 'Save anyway', onPress: () => doSaveSlot(deptDate, returnDate, trekName, viewMonth) },
+        ],
+      );
+      return;
+    }
+
+    doSaveSlot(deptDate, returnDate, trekName, viewMonth);
+  };
+
+  /** True if a saved slot's own dates don't match the month tab it's filed under. */
+  const slotMonthMismatch = (slot: Slot) => !!slot.month && !!slot.deptDate && slot.deptDate.slice(0, 7) !== slot.month;
 
   const deleteSlot = (slot: Slot) => {
     Alert.alert('Delete slot', 'Remove this availability slot?', [
@@ -301,9 +345,10 @@ export function BatchAvailabilityPanel() {
                       <View style={{ padding: 8, gap: 8 }}>
                         {catSlots.map(slot => {
                           const isEditingThis = editingSlot?.id === slot.id;
+                          const mismatch = slotMonthMismatch(slot);
                           return (
                             <View key={slot.id}>
-                              <View style={s.slotCard}>
+                              <View style={[s.slotCard, mismatch && s.slotCardWarn]}>
                                 <View style={s.slotTop}>
                                   <Text style={s.slotName} numberOfLines={1}>
                                     {slot.trekName || 'TREK'}
@@ -323,6 +368,12 @@ export function BatchAvailabilityPanel() {
                                   <Ionicons name="arrow-down" size={10} color={Colors.slate400} style={{ marginLeft: 10 }} />
                                   <Text style={s.slotDateText}>{dayLabel(slot.returnDate)}</Text>
                                 </View>
+                                {mismatch && (
+                                  <View style={s.slotWarnRow}>
+                                    <Ionicons name="warning" size={10} color="#b45309" />
+                                    <Text style={s.slotWarnText}>Date doesn’t match {monthLabel(slot.month)} — tap edit to fix</Text>
+                                  </View>
+                                )}
                               </View>
                               {isEditingThis && (
                                 <SlotFormInline form={slotForm} setForm={setSlotForm} onSave={saveSlot} onCancel={cancelSlotForm} saving={saving} isEdit />
@@ -490,6 +541,9 @@ const s = StyleSheet.create({
   catAddText: { fontSize: 10, fontWeight: '800' },
 
   slotCard: { backgroundColor: Colors.slate50, borderRadius: 10, borderWidth: 1, borderColor: Colors.slate100, paddingHorizontal: 10, paddingVertical: 8, gap: 5 },
+  slotCardWarn: { backgroundColor: '#fffbeb', borderColor: '#fde68a' },
+  slotWarnRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
+  slotWarnText: { fontSize: 10, fontWeight: '700', color: '#b45309', flex: 1 },
   slotTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
   slotName: { flex: 1, fontSize: 12, fontWeight: '700', color: Colors.slate900 },
   slotIconBtn: { width: 20, height: 20, borderRadius: 6, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.slate200, alignItems: 'center', justifyContent: 'center' },

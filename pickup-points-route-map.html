@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pickup Points — Route Map | BT Ops</title>
+<style>
+  :root {
+    --primary: #2563eb;
+    --slate-900: #0f172a;
+    --slate-700: #334155;
+    --slate-500: #64748b;
+    --slate-400: #94a3b8;
+    --slate-200: #e2e8f0;
+    --slate-100: #f1f5f9;
+    --slate-50: #f8fafc;
+    --green: #059669;
+    --green-bg: #ecfdf5;
+    --rose: #e11d48;
+    --rose-bg: #fff1f2;
+    --blue-bg: #eff6ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--slate-50);
+    color: var(--slate-900);
+    padding: 24px 16px 60px;
+  }
+  .page { max-width: 560px; margin: 0 auto; }
+  .hero {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    border-radius: 18px;
+    padding: 24px 22px;
+    color: white;
+    margin-bottom: 18px;
+  }
+  .hero .emoji { font-size: 30px; }
+  .hero h1 { font-size: 20px; margin: 8px 0 4px; }
+  .hero p { font-size: 13px; margin: 0; opacity: 0.85; }
+
+  .card {
+    background: white;
+    border-radius: 16px;
+    border: 1px solid var(--slate-200);
+    padding: 18px 18px 8px;
+    margin-bottom: 16px;
+  }
+  .card h2 {
+    font-size: 12px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--slate-500);
+    margin: 0 0 14px;
+  }
+
+  .stop { display: flex; gap: 12px; position: relative; padding-bottom: 22px; }
+  .stop:last-child { padding-bottom: 4px; }
+  .stop .line {
+    position: absolute;
+    left: 13px;
+    top: 28px;
+    bottom: 0;
+    width: 2px;
+    background: var(--slate-200);
+  }
+  .stop:last-child .line { display: none; }
+  .num {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 12px;
+    color: white;
+    z-index: 1;
+  }
+  .num.first { background: var(--green); }
+  .num.mid { background: var(--primary); }
+  .num.last { background: var(--rose); }
+
+  .stop-body { flex: 1; padding-top: 3px; }
+  .stop-tag {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .stop-tag.first { color: var(--green); }
+  .stop-tag.mid { color: var(--primary); }
+  .stop-tag.last { color: var(--rose); }
+
+  .stop-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--slate-900);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stop-name.linked { color: var(--primary); }
+  .stop-name .pin { font-size: 13px; }
+
+  .directions-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--slate-900);
+    color: white;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 15px;
+    border-radius: 14px;
+    margin-top: 4px;
+  }
+  .directions-btn:active { opacity: 0.85; }
+
+  .footer {
+    text-align: center;
+    font-size: 11px;
+    color: var(--slate-400);
+    margin-top: 22px;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="hero">
+      <div class="emoji">📍</div>
+      <h1>Pickup Points</h1>
+      <p>Standard Bengaluru pickup route — tap a stop to open it in Google Maps</p>
+    </div>
+
+    <div class="card">
+      <h2>Route</h2>
+      <div id="stops"></div>
+    </div>
+
+    <a id="directionsBtn" class="directions-btn" href="#" target="_blank" rel="noopener">
+      🧭 Open full route in Google Maps
+    </a>
+
+    <div class="footer">Powered by BT Ops</div>
+  </div>
+
+  <script>
+    const stops = [
+      { name: "Milano Pizza, Indiranagar", mapUrl: "https://share.google/VSQsmrRbqhtAnz6Wt" },
+      { name: "Shantala Silks, Majestic", mapUrl: "https://maps.app.goo.gl/P2zTRp5ifR6TAqsKA" },
+      { name: "Govardhan Theatre, Yeshwanthpur", mapUrl: "https://maps.app.goo.gl/SrV8123rDB1eQQ1A6" },
+      { name: "People Tree Hospital, Gorguntepalya", mapUrl: "https://maps.app.goo.gl/4B2BSQTUcSW1QHvp8" },
+    ];
+
+    const container = document.getElementById("stops");
+    stops.forEach((s, i) => {
+      const kind = i === 0 ? "first" : i === stops.length - 1 ? "last" : "mid";
+      const label = i === 0 ? "Start" : i === stops.length - 1 ? "Last stop" : `Stop ${i + 1}`;
+      const row = document.createElement("div");
+      row.className = "stop";
+      row.innerHTML = `
+        <div class="line"></div>
+        <div class="num ${kind}">${i + 1}</div>
+        <div class="stop-body">
+          <div class="stop-tag ${kind}">${label}</div>
+          ${
+            s.mapUrl
+              ? `<a class="stop-name linked" href="${s.mapUrl}" target="_blank" rel="noopener"><span class="pin">📍</span>${s.name}</a>`
+              : `<span class="stop-name">${s.name}</span>`
+          }
+        </div>
+      `;
+      container.appendChild(row);
+    });
+
+    const q = (name) => encodeURIComponent(name);
+    const origin = q(stops[0].name);
+    const destination = q(stops[stops.length - 1].name);
+    const waypoints = stops.slice(1, -1).map((s) => q(s.name)).join("%7C");
+    const directionsUrl =
+      `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}` +
+      (waypoints ? `&waypoints=${waypoints}` : "") +
+      `&travelmode=driving`;
+    document.getElementById("directionsBtn").href = directionsUrl;
+  </script>
+</body>
+</html>

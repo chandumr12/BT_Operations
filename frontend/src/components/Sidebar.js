@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Mountain, Calendar, Users, CheckSquare,
   UserCog, LogOut, Settings as SettingsIcon, Ticket, BarChart3,
   Bell, X, CalendarDays, Gift, Tag, UsersRound, TrendingUp, Hotel, ClipboardList, Truck,
-  Trophy, ExternalLink, Eye, CalendarCheck,
+  Trophy, ExternalLink, Eye, CalendarCheck, MapPin, ShieldCheck,
   // Finance icons
   DollarSign, Receipt, CreditCard, Users2, FileText, BookOpen, ChevronDown, ChevronRight,
 } from 'lucide-react';
@@ -33,6 +33,8 @@ const opsMenu = [
   { path: '/lead-performance',   icon: TrendingUp,  label: 'Lead Performance',  roles: ['Super Admin', 'Operations Manager'] },
   { path: '/hotel-stays',        icon: Hotel,          label: 'Hotel Stays',       roles: ['Super Admin', 'Operations Manager'] },
   { path: '/packing-lists',      icon: ClipboardList,  label: 'Packing Lists',     roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/pickup-points',      icon: MapPin,         label: 'Pickup Points',     roles: ['Super Admin', 'Operations Manager'] },
+  { path: '/trek-protocol',      icon: ShieldCheck,    label: 'Trek Protocol',     roles: ['Super Admin', 'Operations Manager'] },
   { path: '/vehicle-allocation', icon: Truck,          label: 'Vehicle Allocation', roles: ['Super Admin', 'Operations Manager'] },
   { path: '/trek-watcher',       icon: Eye,            label: 'Trek Watcher',       roles: ['Super Admin', 'Operations Manager'] },
   { path: '/my-availability',    icon: CalendarCheck,  label: 'My Availability',    roles: ['Trek Lead', 'Coordinator', 'Operations Manager', 'Super Admin'] },

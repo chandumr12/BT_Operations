@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, User } from 'firebase/auth';
+import {
+  onAuthStateChanged, signInWithEmailAndPassword, signOut, User,
+  sendPasswordResetEmail,
+} from 'firebase/auth';
 import { auth } from '@/utils/firebase';
 import api from '@/utils/api';
 
@@ -16,6 +19,8 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, displayName: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   isAdmin: boolean;
   isLead: boolean;
@@ -50,6 +55,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signInWithEmailAndPassword(auth, email, password);
   };
 
+  const signup = async (email: string, password: string, displayName: string) => {
+    // Mirrors the web app: register through the backend first (creates the
+    // Firebase Auth user + a 'pending' Firestore profile), then sign in.
+    await api.post('/auth/register', { email, password, displayName });
+    await signInWithEmailAndPassword(auth, email, password);
+  };
+
+  // Sends a Firebase password-reset email. The link lets the user choose a
+  // new password themselves — matches the web app's "Forgot password?" flow.
+  const resetPassword = async (email: string) => {
+    await sendPasswordResetEmail(auth, email);
+  };
+
   const logout = async () => {
     await signOut(auth);
     setProfile(null);
@@ -60,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isLead  = role === 'Trek Lead';
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, login, logout, isAdmin, isLead }}>
+    <AuthContext.Provider value={{ user, profile, loading, login, signup, resetPassword, logout, isAdmin, isLead }}>
       {children}
     </AuthContext.Provider>
   );

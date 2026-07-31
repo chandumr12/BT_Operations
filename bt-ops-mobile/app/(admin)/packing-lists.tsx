@@ -6,6 +6,7 @@ import {
 import { ModalSafeArea } from '@/components/ModalSafeArea';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import { PickerSheet, PickerTrigger } from '@/components/PickerSheet';
 import {
   collection, getDocs, query, orderBy, deleteDoc, doc,
   addDoc, updateDoc, serverTimestamp,
@@ -17,11 +18,14 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { firestore } from '@/utils/firebase';
 import { confirmAction } from '@/utils/confirm';
+import api from '@/utils/api';
 
 interface Section { title?: string; items?: string[] }
+interface Trek { id: string; name: string; }
 interface PackingList {
   id: string; name: string; slug?: string; description?: string;
-  emoji?: string; sections?: Section[]; updatedAt?: any; updatedBy?: string;
+  emoji?: string; sections?: Section[]; trekId?: string; trekName?: string;
+  updatedAt?: any; updatedBy?: string;
 }
 
 const WEB_BASE = 'https://bengaluru-trekkers-ops.web.app';
@@ -44,6 +48,9 @@ export default function PackingListsScreen() {
   const [emoji, setEmoji] = useState('');
   const [sections, setSections] = useState<Section[]>([]);
   const [saving, setSaving] = useState(false);
+  const [treks, setTreks] = useState<Trek[]>([]);
+  const [trekId, setTrekId] = useState('');
+  const [trekPickerOpen, setTrekPickerOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -61,12 +68,16 @@ export default function PackingListsScreen() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { api.get('/treks').then(r => setTreks(r.data ?? [])).catch(() => {}); }, []);
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const totalItems = (l: PackingList) =>
     (l.sections ?? []).reduce((n, sec) => n + (sec.items?.length ?? 0), 0);
 
-  const publicUrl = (l: PackingList) => `${WEB_BASE}/packing/${l.slug ?? l.id}`;
+  // Standalone static page (frontend/public/packing-list.html) — same page
+  // works whether reached from the web app or the mobile app, no React
+  // Router route involved.
+  const publicUrl = (l: PackingList) => `${WEB_BASE}/packing-list.html?id=${l.id}`;
 
   const updatedMs = (l: PackingList) => {
     const d = l.updatedAt?.toDate ? l.updatedAt.toDate() : l.updatedAt ? new Date(l.updatedAt) : null;
@@ -101,9 +112,10 @@ export default function PackingListsScreen() {
 
   const openEdit = (l: PackingList | 'new') => {
     if (l === 'new') {
-      setName(''); setDescription(''); setEmoji(''); setSections([{ title: '', items: [] }]);
+      setName(''); setDescription(''); setEmoji(''); setTrekId(''); setSections([{ title: '', items: [] }]);
     } else {
       setName(l.name ?? ''); setDescription(l.description ?? ''); setEmoji(l.emoji ?? '');
+      setTrekId(l.trekId ?? '');
       setSections((l.sections ?? []).map(s => ({ title: s.title ?? '', items: [...(s.items ?? [])] })));
     }
     setEditing(l);
@@ -184,6 +196,14 @@ export default function PackingListsScreen() {
         updatedAt: serverTimestamp(),
         updatedBy: profile?.displayName ?? null,
       };
+      if (trekId) {
+        payload.trekId = trekId;
+        payload.trekName = treks.find(t => t.id === trekId)?.name ?? '';
+      } else {
+        // Explicitly shared — clear any trek this list used to belong to.
+        payload.trekId = null;
+        payload.trekName = null;
+      }
       if (editing === 'new') {
         payload.slug = slugify(name) || `list-${Date.now().toString(36)}`;
         payload.createdAt = serverTimestamp();
@@ -266,6 +286,18 @@ export default function PackingListsScreen() {
                 </View>
               </View>
 
+              {l.trekName ? (
+                <View style={s.trekPill}>
+                  <Ionicons name="triangle-outline" size={11} color={Colors.gradientBlueTo} />
+                  <Text style={s.trekPillText}>{l.trekName}</Text>
+                </View>
+              ) : (
+                <View style={s.sharedPill}>
+                  <Ionicons name="globe-outline" size={11} color={Colors.slate500} />
+                  <Text style={s.sharedPillText}>Shared — all treks</Text>
+                </View>
+              )}
+
               {!!l.description && <Text style={s.cardDesc} numberOfLines={2}>{l.description}</Text>}
 
               <View style={s.metaRow}>
@@ -280,7 +312,7 @@ export default function PackingListsScreen() {
               </View>
               <View style={s.metaRow}>
                 <Ionicons name="link-outline" size={13} color={Colors.slate400} />
-                <Text style={s.slugText} numberOfLines={1}>/packing/{l.slug ?? l.id}</Text>
+                <Text style={s.slugText} numberOfLines={1}>packing-list.html?id={l.id}</Text>
               </View>
             </View>
 
@@ -341,6 +373,13 @@ export default function PackingListsScreen() {
               <TextInput style={s.input} value={name} onChangeText={setName} placeholder="e.g. Monsoon Treks" placeholderTextColor={Colors.slate400} />
             </View>
             <View style={s.field}>
+              <Text style={s.label}>Trek (optional — leave blank to share across all treks)</Text>
+              <PickerTrigger
+                label={trekId ? treks.find(t => t.id === trekId)?.name : 'Shared — all treks'}
+                onPress={() => setTrekPickerOpen(true)}
+              />
+            </View>
+            <View style={s.field}>
               <Text style={s.label}>Description</Text>
               <TextInput style={[s.input, s.textarea]} multiline value={description} onChangeText={setDescription}
                 placeholder="Packing list for treks during the monsoon season" placeholderTextColor={Colors.slate400} />
@@ -393,6 +432,15 @@ export default function PackingListsScreen() {
 
             <Button title={editing === 'new' ? 'Create List' : 'Save Changes'} onPress={save} loading={saving} />
           </ScrollView>
+
+          <PickerSheet
+            visible={trekPickerOpen}
+            onClose={() => setTrekPickerOpen(false)}
+            title="Select trek"
+            value={trekId}
+            onChange={setTrekId}
+            options={[{ label: 'Shared — all treks', value: '' }, ...treks.map(t => ({ label: t.name, value: t.id }))]}
+          />
         </ModalSafeArea>
       </Modal>
     </AppShell>
@@ -422,6 +470,10 @@ const s = StyleSheet.create({
   cardDesc:  { fontSize: 12, color: Colors.slate600, lineHeight: 17 },
   countPill: { backgroundColor: Colors.slate100, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
   countText: { fontSize: 11, fontWeight: '700', color: Colors.slate700 },
+  trekPill:  { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', backgroundColor: '#dbeafe', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
+  trekPillText: { fontSize: 11, fontWeight: '700', color: Colors.gradientBlueTo },
+  sharedPill: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start', backgroundColor: Colors.slate100, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20 },
+  sharedPillText: { fontSize: 11, fontWeight: '700', color: Colors.slate500 },
 
   metaRow:  { flexDirection: 'row', alignItems: 'center', gap: 7 },
   metaText: { fontSize: 12, color: Colors.slate500 },

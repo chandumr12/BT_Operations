@@ -1,17 +1,21 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView,
-  RefreshControl, ActivityIndicator, Alert,
+  RefreshControl, ActivityIndicator, Alert, Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { AppShell } from '@/components/AppShell';
 import { PageTitle, SearchBar, Chip, ColorTile, Pill, Panel, STATUS_STYLE, EmptyState } from '@/components/ui';
 import { BatchDetailModal, BatchSummary } from '@/components/BatchDetailModal';
-import { BatchFormModal } from '@/components/BatchFormModal';
+import { BatchFormModal, EditableBatch } from '@/components/BatchFormModal';
 import { BatchAvailabilityPanel } from '@/components/BatchAvailabilityPanel';
+import { SendBriefingModal } from '@/components/SendBriefingModal';
 import { Colors } from '@/constants/Colors';
+import { useAuth } from '@/contexts/AuthContext';
 import api from '@/utils/api';
 import { describeError } from '@/utils/errors';
+import { confirmAction } from '@/utils/confirm';
 
 interface Batch extends BatchSummary {
   trekId?: string;
@@ -21,6 +25,10 @@ const STATUS_OPTIONS = ['Open', 'Closed', 'Completed', 'Cancelled'];
 type Filter = 'All' | 'Current' | 'Upcoming' | 'Past';
 
 export default function BatchesScreen() {
+  const { profile } = useAuth();
+  const isAdmin = ['Super Admin', 'Operations Manager'].includes(profile?.role ?? '');
+  const canManageDrive = isAdmin || profile?.role === 'Trek Lead';
+
   const [batches, setBatches] = useState<Batch[]>([]);
   const [trekNames, setTrekNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -31,6 +39,10 @@ export default function BatchesScreen() {
   const [selected, setSelected] = useState<Batch | null>(null);
   const [showAvailability, setShowAvailability] = useState(false);
   const [showNewBatch, setShowNewBatch] = useState(false);
+  const [editingBatch, setEditingBatch] = useState<EditableBatch | null>(null);
+  const [briefingBatch, setBriefingBatch] = useState<Batch | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState<string | null>(null);
+  const [copiedFolder, setCopiedFolder] = useState<string | null>(null);
 
   const pickFilter = (f: Filter) => { setShowAvailability(false); setFilter(f); };
 
@@ -85,6 +97,37 @@ export default function BatchesScreen() {
     setBatches(prev => prev.map(x => x.id === b.id ? { ...x, status } : x));
     try { await api.patch(`/batches/${b.id}`, { status }); }
     catch { Alert.alert('Error', 'Could not update batch status'); load(); }
+  };
+
+  const createDriveFolder = async (b: Batch) => {
+    const label = `${b.batchCode} ${b.trekId ? trekNames[b.trekId] ?? '' : ''} ${b.startDate ? new Date(b.startDate).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : ''}`.trim();
+    setCreatingFolder(b.id);
+    try {
+      const res = await api.post('/create-drive-folder', { batch_label: label });
+      const url = res.data.folderUrl;
+      setBatches(prev => prev.map(x => x.id === b.id ? { ...x, driveFolderUrl: url } : x));
+      await api.patch(`/batches/${b.id}`, { driveFolderUrl: url });
+    } catch (e: any) {
+      Alert.alert('Drive folder failed', e.response?.data?.detail ?? e.message ?? 'Could not create folder');
+    } finally { setCreatingFolder(null); }
+  };
+
+  const copyFolderLink = async (b: Batch) => {
+    if (!b.driveFolderUrl) return;
+    await Clipboard.setStringAsync(b.driveFolderUrl);
+    setCopiedFolder(b.id);
+    setTimeout(() => setCopiedFolder(null), 2000);
+  };
+
+  const openFolder = (b: Batch) => { if (b.driveFolderUrl) Linking.openURL(b.driveFolderUrl); };
+
+  const deleteBatch = (b: Batch) => {
+    confirmAction('Delete batch?', `${b.batchCode} will be permanently removed.`, 'Delete', async () => {
+      try {
+        await api.delete(`/batches/${b.id}`);
+        setBatches(prev => prev.filter(x => x.id !== b.id));
+      } catch { Alert.alert('Error', 'Could not delete batch'); }
+    });
   };
 
   const fmt = (iso: string) => {
@@ -208,6 +251,49 @@ export default function BatchesScreen() {
                 )}
               </TouchableOpacity>
 
+              {(canManageDrive || isAdmin) && (
+                <View style={s.actionsRow}>
+                  {canManageDrive && (
+                    b.driveFolderUrl ? (
+                      <>
+                        <TouchableOpacity style={[s.actionChip, s.actionChipGreen]} onPress={() => openFolder(b)} activeOpacity={0.8}>
+                          <Ionicons name="folder-open-outline" size={12} color="#047857" />
+                          <Text style={[s.actionChipText, { color: '#047857' }]}>Photos</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={s.actionChip} onPress={() => copyFolderLink(b)} activeOpacity={0.8}>
+                          <Ionicons name={copiedFolder === b.id ? 'checkmark' : 'copy-outline'} size={12} color={copiedFolder === b.id ? '#047857' : Colors.slate500} />
+                          <Text style={s.actionChipText}>{copiedFolder === b.id ? 'Copied' : 'Copy'}</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <TouchableOpacity style={[s.actionChip, s.actionChipGreenOutline]} onPress={() => createDriveFolder(b)} disabled={creatingFolder === b.id} activeOpacity={0.8}>
+                        <Ionicons name="folder-open-outline" size={12} color="#059669" />
+                        <Text style={[s.actionChipText, { color: '#059669' }]}>{creatingFolder === b.id ? 'Creating…' : 'Add Folder'}</Text>
+                      </TouchableOpacity>
+                    )
+                  )}
+                  {isAdmin && (
+                    <TouchableOpacity style={s.actionChip} onPress={() => setEditingBatch(b)} activeOpacity={0.8}>
+                      <Ionicons name="create-outline" size={12} color={Colors.slate500} />
+                      <Text style={s.actionChipText}>Edit</Text>
+                    </TouchableOpacity>
+                  )}
+                  {/* Consolidated briefing (pickup points + packing list +
+                      protocol) for the assigned leads — ops roles only. */}
+                  {isAdmin && !!b.assignedLeads?.length && (
+                    <TouchableOpacity style={[s.actionChip, s.actionChipGreenOutline]} onPress={() => setBriefingBatch(b)} activeOpacity={0.8}>
+                      <Ionicons name="logo-whatsapp" size={12} color="#059669" />
+                      <Text style={[s.actionChipText, { color: '#059669' }]}>Brief Lead</Text>
+                    </TouchableOpacity>
+                  )}
+                  {isAdmin && (
+                    <TouchableOpacity style={s.actionChipDanger} onPress={() => deleteBatch(b)} activeOpacity={0.8}>
+                      <Ionicons name="trash-outline" size={13} color={Colors.danger} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+
               <View style={s.statusBar}>
                 <Text style={s.statusLabel}>STATUS</Text>
                 {STATUS_OPTIONS.map(opt => {
@@ -241,6 +327,16 @@ export default function BatchesScreen() {
 
       {selected && <BatchDetailModal batch={selected} onClose={() => setSelected(null)} />}
       {showNewBatch && <BatchFormModal onClose={() => setShowNewBatch(false)} onSaved={load} />}
+      {editingBatch && (
+        <BatchFormModal editingBatch={editingBatch} onClose={() => setEditingBatch(null)} onSaved={load} />
+      )}
+      {briefingBatch && (
+        <SendBriefingModal
+          batch={briefingBatch}
+          trekName={briefingBatch.trekId ? trekNames[briefingBatch.trekId] : undefined}
+          onClose={() => setBriefingBatch(null)}
+        />
+      )}
     </AppShell>
   );
 }
@@ -275,6 +371,13 @@ const s = StyleSheet.create({
   leadRow:      { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
   leadPill:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#fef9c3', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
   leadPillText: { fontSize: 11, fontWeight: '700', color: '#a16207' },
+
+  actionsRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingHorizontal: 14, paddingBottom: 10 },
+  actionChip: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.slate200, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9 },
+  actionChipText: { fontSize: 11, fontWeight: '600', color: Colors.slate500 },
+  actionChipGreen: { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' },
+  actionChipGreenOutline: { borderColor: '#a7f3d0' },
+  actionChipDanger: { width: 30, height: 30, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.dangerBg, borderWidth: 1, borderColor: '#fecaca' },
 
   statusBar:   { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.slate100 },
   statusLabel: { fontSize: 10, fontWeight: '800', color: Colors.slate400, letterSpacing: 0.6, marginRight: 2 },

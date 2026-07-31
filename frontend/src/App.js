@@ -30,6 +30,12 @@ import HotelStayView    from '@/pages/HotelStayView';
 import PackingLists     from '@/pages/PackingLists';
 import PackingListEdit  from '@/pages/PackingListEdit';
 import PackingListView  from '@/pages/PackingListView';
+import PickupPoints     from '@/pages/PickupPoints';
+import PickupPointsEdit from '@/pages/PickupPointsEdit';
+import PickupPointsView from '@/pages/PickupPointsView';
+import TrekProtocol     from '@/pages/TrekProtocol';
+import TrekProtocolEdit from '@/pages/TrekProtocolEdit';
+import TrekProtocolView from '@/pages/TrekProtocolView';
 import VehicleAllocation from '@/pages/VehicleAllocation';
 import VehicleView      from '@/pages/VehicleView';
 import LeadView         from '@/pages/LeadView';
@@ -193,6 +199,36 @@ function App() {
 
           {/* Public packing list view — no auth */}
           <Route path="/packing/:slug" element={<PackingListView />} />
+
+          {/* ── Pickup Points ───────────────────────────────────────── */}
+          <Route path="/pickup-points" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><PickupPoints /></Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/pickup-points/:id/edit" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><PickupPointsEdit /></Layout>
+            </ProtectedRoute>
+          } />
+
+          {/* ── Trek Protocol ───────────────────────────────────────── */}
+          <Route path="/trek-protocol" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><TrekProtocol /></Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/trek-protocol/:id/edit" element={
+            <ProtectedRoute allowedRoles={['Super Admin', 'Operations Manager']}>
+              <Layout><TrekProtocolEdit /></Layout>
+            </ProtectedRoute>
+          } />
+
+          {/* Public pickup points / trek protocol views — no auth.
+              Reachable from either the web admin pages above or the mobile
+              app; these are the targets of the links shared with leads. */}
+          <Route path="/pickup/:slug"   element={<PickupPointsView />} />
+          <Route path="/protocol/:slug" element={<TrekProtocolView />} />
 
           {/* ── Vehicle Allocation ─────────────────────────────────── */}
           <Route path="/vehicle-allocation" element={

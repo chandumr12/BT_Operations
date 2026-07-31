@@ -33,15 +33,42 @@ export const OPS_MENU: NavItem[] = [
   { path: '/(admin)/lead-performance',   label: 'Lead Performance',   icon: 'trending-up-outline',     roles: ADMIN, built: true },
   { path: '/(admin)/hotel-stays',        label: 'Hotel Stays',        icon: 'business-outline',        roles: ADMIN, built: true },
   { path: '/(admin)/packing-lists',      label: 'Packing Lists',      icon: 'clipboard-outline',       roles: ADMIN, built: true },
+  { path: '/(admin)/pickup-points',      label: 'Pickup Points',      icon: 'location-outline',        roles: ALL,   built: true },
+  { path: '/(admin)/trek-protocol',      label: 'Trek Protocol',      icon: 'shield-checkmark-outline', roles: ALL,  built: true },
   { path: '/(admin)/vehicle-allocation', label: 'Vehicle Allocation', icon: 'bus-outline',             roles: ADMIN, built: true },
   { path: '/(admin)/watcher',            label: 'Trek Watcher',       icon: 'eye-outline',             roles: ADMIN, built: true },
+  { path: '/(admin)/ticket-audit',       label: 'Ticket Audit',       icon: 'scan-outline',            roles: ADMIN, built: true },
   { path: '/(admin)/my-availability',    label: 'My Availability',    icon: 'calendar-clear-outline',  roles: ALL,   built: true },
+  { path: '/(admin)/my-vouchers',        label: 'My Vouchers',        icon: 'gift-outline',            roles: ['Trek Lead', 'Coordinator'], built: true },
   { path: '/(admin)/rewards',            label: 'Rewards',            icon: 'trophy-outline',          roles: ['Super Admin'], built: true },
   { path: '/(admin)/users',              label: 'Users',              icon: 'person-add-outline',      roles: ['Super Admin'], built: true },
   { path: '/(admin)/settings',           label: 'Settings',           icon: 'settings-outline',        roles: ['Super Admin'], built: true },
 ];
 
+/**
+ * Mirrors the web app's FINANCE section. Note the gating: App.js defines
+ * `FINANCE_ROLES = ['Super Admin']`, so every finance route is Super-Admin-only
+ * even though the comment above it mentions Operations Manager.
+ */
+const FINANCE_ROLES = ['Super Admin'];
+
+export const FINANCE_MENU: NavItem[] = [
+  { path: '/(admin)/finance',                    label: 'F&L Dashboard',     icon: 'cash-outline',              roles: FINANCE_ROLES, built: true },
+  { path: '/(admin)/finance/batches',            label: 'Finance Batches',   icon: 'calendar-outline',          roles: FINANCE_ROLES, built: true },
+  { path: '/(admin)/finance/reports',            label: 'Reports',           icon: 'document-text-outline',     roles: FINANCE_ROLES, built: true },
+  { path: '/(admin)/finance/expenses',           label: 'Expenses',          icon: 'receipt-outline',           roles: FINANCE_ROLES, built: true },
+  { path: '/(admin)/finance/expense-templates',  label: 'Exp. Templates',    icon: 'extension-puzzle-outline',  roles: FINANCE_ROLES, built: true },
+  { path: '/(admin)/finance/payroll',            label: 'Payroll',           icon: 'card-outline',              roles: FINANCE_ROLES, built: true },
+  { path: '/(admin)/finance/team',               label: 'Finance Team',      icon: 'people-outline',            roles: FINANCE_ROLES, built: true },
+  { path: '/(admin)/finance/leads',              label: 'Finance Leads',     icon: 'person-outline',            roles: FINANCE_ROLES, built: true },
+];
+
 export function menuForRole(role: string | undefined): NavItem[] {
   if (!role) return [];
   return OPS_MENU.filter(i => i.roles.includes(role));
+}
+
+export function financeMenuForRole(role: string | undefined): NavItem[] {
+  if (!role) return [];
+  return FINANCE_MENU.filter(i => i.roles.includes(role));
 }

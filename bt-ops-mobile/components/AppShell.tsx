@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { menuForRole, NavItem } from '@/constants/nav';
+import { menuForRole, financeMenuForRole, NavItem } from '@/constants/nav';
 import { confirmAction } from '@/utils/confirm';
 import api from '@/utils/api';
 
@@ -36,10 +36,14 @@ function Drawer({ visible, onClose, unread }: { visible: boolean; onClose: () =>
   }, [visible, slide, fade]);
 
   const items = menuForRole(profile?.role);
+  const financeItems = financeMenuForRole(profile?.role);
 
   const isActive = (item: NavItem) => {
     const target = item.path.replace('/(admin)', '');
     if (target === '/') return pathname === '/' || pathname === '/(admin)' || pathname === '/(admin)/';
+    // '/finance' must not light up for '/finance/payroll' etc., so the index
+    // route matches exactly while the rest match by prefix.
+    if (target === '/finance') return pathname === target || pathname === item.path;
     return pathname === target || pathname === item.path || pathname.startsWith(target + '/');
   };
 
@@ -101,6 +105,31 @@ function Drawer({ visible, onClose, unread }: { visible: boolean; onClose: () =>
                   </TouchableOpacity>
                 );
               })}
+
+              {/* FINANCE — Super Admin only, matching the web's FINANCE_ROLES */}
+              {financeItems.length > 0 && (
+                <>
+                  <Text style={[d.sectionLabel, d.sectionLabelSpaced]}>FINANCE</Text>
+                  {financeItems.map(item => {
+                    const active = isActive(item);
+                    return (
+                      <TouchableOpacity
+                        key={item.path}
+                        style={[d.navItem, active && d.navItemActive]}
+                        onPress={() => go(item)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name={item.icon}
+                          size={18}
+                          color={active ? Colors.white : Colors.sidebarText}
+                        />
+                        <Text style={[d.navLabel, active && d.navLabelActive]}>{item.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
             </ScrollView>
 
             {/* Footer */}
@@ -211,6 +240,7 @@ const d = StyleSheet.create({
 
   navList:      { paddingHorizontal: 12, paddingVertical: 14, gap: 2 },
   sectionLabel: { fontSize: 11, fontWeight: '700', color: Colors.sidebarMuted, letterSpacing: 1, paddingHorizontal: 12, paddingBottom: 6 },
+  sectionLabelSpaced: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.sidebarBorder },
   navItem: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: 12, paddingVertical: 11, borderRadius: 10,

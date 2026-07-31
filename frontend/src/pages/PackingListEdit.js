@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { firestore } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import api from '@/utils/api';
 import {
   collection, doc, getDoc, addDoc, updateDoc, getDocs,
   query, where, serverTimestamp,
@@ -13,7 +14,11 @@ import {
   ChevronRight, Sparkles, Link as LinkIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+
+const SHARED = '__shared__'; // Radix Select can't use an empty string value
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function genId() { return Math.random().toString(36).slice(2, 9); }
@@ -323,11 +328,17 @@ export default function PackingListEdit() {
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('📋');
   const [description, setDescription] = useState('');
+  const [trekId, setTrekId] = useState(SHARED);
+  const [treks, setTreks] = useState([]);
   const [sections, setSections] = useState(defaultSections);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(!isNew);
   const [itemModal, setItemModal] = useState(null);
   const [showTemplates, setShowTemplates] = useState(isNew);
+
+  useEffect(() => {
+    api.get('/treks').then(r => setTreks(r.data || [])).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (isNew) return;
@@ -339,6 +350,7 @@ export default function PackingListEdit() {
         setName(d.name || '');
         setEmoji(d.emoji || '📋');
         setDescription(d.description || '');
+        setTrekId(d.trekId || SHARED);
         setSections((d.sections || []).map(s => ({
           ...s,
           collapsed: false,
@@ -402,11 +414,14 @@ export default function PackingListEdit() {
       const base = slugify(name);
       const slug = await uniqueSlug(base, isNew ? null : id);
       const cleanSections = sections.map(({ collapsed, ...s }) => s);
+      const trekPicked = trekId !== SHARED ? trekId : '';
       const payload = {
         name: name.trim(),
         emoji,
         description: description.trim(),
         slug,
+        trekId: trekPicked || null,
+        trekName: trekPicked ? (treks.find(t => t.id === trekPicked)?.name || '') : null,
         sections: cleanSections,
         updatedAt: serverTimestamp(),
         updatedBy: userProfile?.displayName || userProfile?.email || 'Admin',
@@ -424,8 +439,12 @@ export default function PackingListEdit() {
     setSaving(false);
   };
 
+  // Standalone static page (frontend/public/packing-list.html) — same page
+  // works whether reached from the web app or shared from the mobile app.
+  const publicUrl = `${window.location.origin}/packing-list.html?id=${id}`;
+
   const copyLink = () => {
-    navigator.clipboard.writeText(`${window.location.origin}/packing/${slugify(name || 'my-trek')}`);
+    navigator.clipboard.writeText(publicUrl);
     toast.success('Link copied!');
   };
 
@@ -456,7 +475,7 @@ export default function PackingListEdit() {
                 <Copy size={13} className="mr-1.5" /> Copy Link
               </Button>
               <Button variant="outline" size="sm"
-                onClick={() => window.open(`/packing/${slugify(name)}`, '_blank')}
+                onClick={() => window.open(publicUrl, '_blank')}
                 className="text-xs"
               >
                 <ExternalLink size={13} className="mr-1.5" /> Preview
@@ -526,6 +545,16 @@ export default function PackingListEdit() {
               />
             </div>
             <div>
+              <Label className="text-xs text-slate-500 font-medium block mb-1">Trek (optional — leave shared to apply to all treks)</Label>
+              <Select value={trekId} onValueChange={setTrekId}>
+                <SelectTrigger className="bg-white border-slate-200"><SelectValue placeholder="Shared — all treks" /></SelectTrigger>
+                <SelectContent className="bg-white">
+                  <SelectItem value={SHARED}>Shared — all treks</SelectItem>
+                  {treks.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <label className="text-xs text-slate-500 font-medium block mb-1">Description (optional)</label>
               <input
                 className="w-full border border-slate-200 rounded-xl px-4 py-2 text-sm text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -538,7 +567,7 @@ export default function PackingListEdit() {
         </div>
         <div className="mt-4 flex items-center gap-3 bg-slate-50 rounded-xl px-4 py-2.5 text-xs text-slate-500">
           <span className="font-mono truncate flex-1">
-            {window.location.host}/packing/{name ? slugify(name) : 'your-category-name'}
+            {isNew ? `${window.location.host}/packing-list.html?id=(save first)` : `${window.location.host}/packing-list.html?id=${id}`}
           </span>
           <span className="shrink-0 bg-green-100 text-green-700 font-medium px-2 py-0.5 rounded-full">Public URL</span>
         </div>

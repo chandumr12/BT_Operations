@@ -1,0 +1,535 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, RefreshControl,
+} from 'react-native';
+import { collection, getDocs } from 'firebase/firestore';
+import { AppShell } from '@/components/AppShell';
+import { PageTitle, Panel, SearchBar, Chip } from '@/components/ui';
+import {
+  KpiCard, KpiGrid, SectionTitle, DataTable, Pager, paginate,
+  ToolButton, BarChart, DonutChart, Column,
+} from '@/components/finance/FinanceUI';
+import { Colors } from '@/constants/Colors';
+import { financeDb } from '@/utils/financeFirebase';
+import {
+  inr, MARKETING_CATS, QUARTER_LABELS, quarterOf, catLabel, netColor,
+} from '@/utils/finance';
+import { exportExcel, exportPdf } from '@/utils/financeExport';
+import { describeError } from '@/utils/errors';
+
+const monthLbl = (iso?: string) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? '' : d.toLocaleString('default', { month: 'short', year: 'numeric' });
+};
+const monthKeyToLbl = (mk: string) => monthLbl(`${mk}-01`);
+
+export default function FinanceReportsScreen() {
+  const [batches, setBatches]   = useState<any[]>([]);
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [payroll, setPayroll]   = useState<any[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [err, setErr] = useState('');
+
+  const [search, setSearch]   = useState('');
+  const [fMonth, setFMonth]   = useState('');
+  const [fTrek,  setFTrek]    = useState('');
+  const [fLead,  setFLead]    = useState('');
+  const [opsCategory, setOpsCategory] = useState('');
+  const [marketingOnly, setMarketingOnly] = useState(false);
+  const [year, setYear] = useState(new Date().getFullYear());
+
+  const [trekPage, setTrekPage]   = useState(1);
+  const [monthPage, setMonthPage] = useState(1);
+  const [leadPage, setLeadPage]   = useState(1);
+  const [opsPage, setOpsPage]     = useState(1);
+  const [size] = useState(10);
+
+  const load = useCallback(async () => {
+    setErr('');
+    try {
+      const [bs, es, ps] = await Promise.all([
+        getDocs(collection(financeDb, 'batches')),
+        getDocs(collection(financeDb, 'expenses_global')),
+        getDocs(collection(financeDb, 'payroll')),
+      ]);
+      setBatches(bs.docs.map(d => ({ id: d.id, ...d.data() })));
+      setExpenses(es.docs.map(d => ({ id: d.id, ...d.data() })));
+      setPayroll(ps.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (e) {
+      setErr(describeError(e));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    setTrekPage(1); setMonthPage(1); setLeadPage(1); setOpsPage(1);
+  }, [fMonth, fTrek, fLead, search, opsCategory, marketingOnly, year]);
+
+  /* ── Filter options ────────────────────────────────────────────────── */
+  const months = useMemo(
+    () => Array.from(new Set(batches.map(b => monthLbl(b.date)))).filter(Boolean) as string[],
+    [batches],
+  );
+  const treks = useMemo(
+    () => Array.from(new Set(batches.map(b => b.trekName).filter(Boolean))) as string[],
+    [batches],
+  );
+  const leadNames = useMemo(() => {
+    const set = new Set<string>();
+    batches.forEach(b => {
+      if (b.leadName) set.add(b.leadName);
+      (b.leadPayments || []).forEach((lp: any) => lp?.name && set.add(lp.name));
+    });
+    return Array.from(set).sort();
+  }, [batches]);
+  const years = useMemo(() => {
+    const set = new Set(batches.map(b => (b.date || '').slice(0, 4)).filter(Boolean));
+    set.add(String(new Date().getFullYear()));
+    return Array.from(set).sort() as string[];
+  }, [batches]);
+
+  /* ── Filtered batches + aggregation (mirrors summary useMemo) ─────── */
+  const filteredBatches = useMemo(() => {
+    const s = search.toLowerCase();
+    return batches.filter(b => {
+      const m = monthLbl(b.date);
+      const trekOk  = !fTrek  || b.trekName === fTrek;
+      const monthOk = !fMonth || m === fMonth;
+      const leadOk  = !fLead
+        || b.leadName === fLead
+        || (b.leadPayments || []).some((lp: any) => lp?.name === fLead);
+      const searchOk = !s
+        || (b.trekName  || '').toLowerCase().includes(s)
+        || (b.batchCode || '').toLowerCase().includes(s)
+        || (b.leadName  || '').toLowerCase().includes(s)
+        || (b.leadPayments || []).some((lp: any) => (lp?.name || '').toLowerCase().includes(s));
+      return trekOk && monthOk && leadOk && searchOk;
+    });
+  }, [batches, fMonth, fTrek, fLead, search]);
+
+  const summary = useMemo(() => {
+    let totalIncome = 0, totalExpense = 0, totalProfit = 0;
+    const trekWise:  Record<string, any> = {};
+    const monthWise: Record<string, any> = {};
+    const leadWise:  Record<string, any> = {};
+
+    filteredBatches.forEach(b => {
+      const income  = Number(b.totalIncome  || b.income  || 0);
+      const expense = Number(b.totalExpense || 0);
+      const profit  = Number(b.totalProfit  || b.profit  || 0);
+      totalIncome += income; totalExpense += expense; totalProfit += profit;
+
+      if (b.trekName) {
+        trekWise[b.trekName] ??= { income: 0, expense: 0, profit: 0, count: 0 };
+        trekWise[b.trekName].income += income;
+        trekWise[b.trekName].expense += expense;
+        trekWise[b.trekName].profit += profit;
+        trekWise[b.trekName].count += 1;
+      }
+      const m = monthLbl(b.date);
+      if (m) {
+        monthWise[m] ??= { income: 0, expense: 0, profit: 0, count: 0 };
+        monthWise[m].income += income;
+        monthWise[m].expense += expense;
+        monthWise[m].profit += profit;
+        monthWise[m].count += 1;
+      }
+      if (b.leadName) {
+        leadWise[b.leadName] ??= { count: 0, paid: 0 };
+        leadWise[b.leadName].count += 1;
+      }
+      (b.leadPayments || []).forEach((lp: any) => {
+        if (!lp?.name) return;
+        leadWise[lp.name] ??= { count: 0, paid: 0 };
+        leadWise[lp.name].count += 1;
+        leadWise[lp.name].paid += Number(lp.amount || 0);
+      });
+    });
+    return { totalIncome, totalExpense, totalProfit, trekWise, monthWise, leadWise };
+  }, [filteredBatches]);
+
+  /* ── Ops / marketing / payroll ─────────────────────────────────────── */
+  const opsFiltered = useMemo(() => expenses.filter(e => {
+    const mLbl = monthKeyToLbl(e.monthKey || '');
+    const monthOk = !fMonth || mLbl === fMonth;
+    const catOk   = !opsCategory || e.category === opsCategory;
+    const mktOk   = !marketingOnly || MARKETING_CATS.includes(e.category);
+    return monthOk && catOk && mktOk;
+  }), [expenses, fMonth, opsCategory, marketingOnly]);
+
+  const opsCategoriesTotal = useMemo(() => {
+    const map: Record<string, number> = {};
+    opsFiltered.forEach(e => {
+      map[e.category || 'other'] = (map[e.category || 'other'] || 0) + Number(e.amount || 0);
+    });
+    return map;
+  }, [opsFiltered]);
+
+  const opsRows = useMemo(
+    () => Object.entries(opsCategoriesTotal).sort((a, b) => b[1] - a[1]),
+    [opsCategoriesTotal],
+  );
+  const opsTotal = useMemo(
+    () => opsFiltered.reduce((s, e) => s + Number(e.amount || 0), 0),
+    [opsFiltered],
+  );
+  const marketingTotal = useMemo(
+    () => opsFiltered.filter(e => MARKETING_CATS.includes(e.category))
+                     .reduce((s, e) => s + Number(e.amount || 0), 0),
+    [opsFiltered],
+  );
+  const marketingPie = useMemo(() => {
+    const colors: Record<string, string> = {
+      google_ads: '#4285F4', insta_ads: '#E1306C', content_creator: '#34A853',
+    };
+    return MARKETING_CATS.map(c => ({
+      name: catLabel(c),
+      value: opsFiltered.filter(e => e.category === c).reduce((s, e) => s + Number(e.amount || 0), 0),
+      color: colors[c],
+    }));
+  }, [opsFiltered]);
+
+  const payrollFiltered = useMemo(() => payroll.filter(p => {
+    const mLbl = monthKeyToLbl(p.monthKey || '');
+    return !fMonth || mLbl === fMonth;
+  }), [payroll, fMonth]);
+  const payrollTotal = useMemo(
+    () => payrollFiltered.reduce((s, p) => s + Number(p.netPay || 0), 0),
+    [payrollFiltered],
+  );
+
+  const companyNet = summary.totalProfit - opsTotal - payrollTotal;
+
+  /* ── Monthly & quarterly net for selected year ─────────────────────── */
+  const yearKey = String(year);
+  const netMonthlyRows = useMemo(() => {
+    const keys = Array.from({ length: 12 }, (_, i) => `${yearKey}-${String(i + 1).padStart(2, '0')}`);
+    const opsByMonth: Record<string, number> = {};
+    const payByMonth: Record<string, number> = {};
+    expenses.forEach(e => {
+      const mk = e.monthKey || '';
+      if (mk.startsWith(yearKey)) opsByMonth[mk] = (opsByMonth[mk] || 0) + Number(e.amount || 0);
+    });
+    payroll.forEach(p => {
+      const mk = p.monthKey || '';
+      if (mk.startsWith(yearKey)) payByMonth[mk] = (payByMonth[mk] || 0) + Number(p.netPay || 0);
+    });
+    return keys.map(mk => {
+      const batchProfit = batches
+        .filter(b => (b.date || '').startsWith(mk))
+        .reduce((s, b) => s + Number(b.totalProfit || 0), 0);
+      const ops = opsByMonth[mk] || 0;
+      const pay = payByMonth[mk] || 0;
+      return { mk, label: monthKeyToLbl(mk), batchProfit, ops, payroll: pay, companyNet: batchProfit - ops - pay };
+    });
+  }, [batches, expenses, payroll, yearKey]);
+
+  const netQuarterlyRows = useMemo(() => {
+    const q = QUARTER_LABELS.map(label => ({ label, batchProfit: 0, ops: 0, payroll: 0, companyNet: 0 }));
+    netMonthlyRows.forEach(r => {
+      const i = quarterOf(r.mk);
+      if (i < 0) return;
+      q[i].batchProfit += r.batchProfit;
+      q[i].ops         += r.ops;
+      q[i].payroll     += r.payroll;
+    });
+    return q.map(r => ({ ...r, companyNet: r.batchProfit - r.ops - r.payroll }));
+  }, [netMonthlyRows]);
+
+  /* ── Derived rows ──────────────────────────────────────────────────── */
+  const trekRows  = useMemo(() => Object.entries(summary.trekWise).sort((a, b) => b[1].profit - a[1].profit), [summary.trekWise]);
+  const monthRows = useMemo(() => Object.entries(summary.monthWise), [summary.monthWise]);
+  const leadRows  = useMemo(() => Object.entries(summary.leadWise).sort((a, b) => (b[1].paid || 0) - (a[1].paid || 0)), [summary.leadWise]);
+
+  /* ── Exports ───────────────────────────────────────────────────────── */
+  const doExportExcel = async () => {
+    try {
+      await exportExcel('BT_Finance_Report', [
+        { name: 'Trek-wise',  rows: trekRows.map(([t, d]: any) => ({ Trek: t, Income: d.income, Expense: d.expense, Profit: d.profit, Batches: d.count })) },
+        { name: 'Monthly',    rows: monthRows.map(([m, d]: any) => ({ Month: m, Income: d.income, Expense: d.expense, Profit: d.profit, Batches: d.count })) },
+        { name: 'Lead-wise',  rows: leadRows.map(([l, d]: any) => ({ Lead: l, Batches: d.count, 'Total Paid': d.paid })) },
+        { name: 'Ops',        rows: opsRows.map(([c, v]) => ({ Category: catLabel(c), Amount: v })) },
+        { name: 'Monthly Net', rows: netMonthlyRows.map(r => ({ Month: r.label, 'Batch Profit': r.batchProfit, Ops: r.ops, Payroll: r.payroll, 'Company Net': r.companyNet })) },
+        { name: 'Quarterly Net', rows: netQuarterlyRows.map(r => ({ Quarter: r.label, 'Batch Profit': r.batchProfit, Ops: r.ops, Payroll: r.payroll, 'Company Net': r.companyNet })) },
+      ]);
+    } catch (e) { Alert.alert('Export failed', describeError(e)); }
+  };
+
+  const doExportMarketing = async () => {
+    try {
+      await exportExcel('BT_Marketing_Report', [
+        { name: 'Marketing', rows: opsFiltered.filter(e => MARKETING_CATS.includes(e.category)).map(e => ({
+            MonthKey: e.monthKey || '', Category: catLabel(e.category), SubCategory: e.subCategory || '',
+            Amount: Number(e.amount || 0), Notes: e.notes || '',
+          })) },
+        { name: 'Summary', rows: marketingPie.map(m => ({ Channel: m.name, Amount: m.value })) },
+      ]);
+    } catch (e) { Alert.alert('Export failed', describeError(e)); }
+  };
+
+  const doExportPdf = async () => {
+    try {
+      await exportPdf('BT_Finance_Report', 'Finance Report', [
+        {
+          title: 'Summary',
+          columns: ['Metric', 'Amount'],
+          rows: [
+            ['Total Income', inr(summary.totalIncome)],
+            ['Total Expense', inr(summary.totalExpense)],
+            ['Total Profit', inr(summary.totalProfit)],
+            ['Batches', String(filteredBatches.length)],
+            ['Ops Spend', inr(opsTotal)],
+            ['Marketing Spend', inr(marketingTotal)],
+            ['Payroll', inr(payrollTotal)],
+            ['Company Net', inr(companyNet)],
+          ],
+        },
+        {
+          title: 'Trek-wise',
+          columns: ['Trek', 'Income', 'Expense', 'Profit', 'Batches'],
+          rows: trekRows.map(([t, d]: any) => [t, inr(d.income), inr(d.expense), inr(d.profit), d.count]),
+        },
+        {
+          title: 'Monthly',
+          columns: ['Month', 'Income', 'Expense', 'Profit', 'Batches'],
+          rows: monthRows.map(([m, d]: any) => [m, inr(d.income), inr(d.expense), inr(d.profit), d.count]),
+        },
+        {
+          title: 'Lead-wise',
+          columns: ['Lead', 'Batches', 'Total Paid'],
+          rows: leadRows.map(([l, d]: any) => [l, d.count, inr(d.paid)]),
+        },
+        {
+          title: 'Ops Expenses by Category',
+          columns: ['Category', 'Amount'],
+          rows: opsRows.map(([c, v]) => [catLabel(c), inr(v)]),
+        },
+        {
+          title: `Monthly Net — ${year}`,
+          columns: ['Month', 'Batch Profit', 'Ops', 'Payroll', 'Company Net'],
+          rows: netMonthlyRows.map(r => [r.label, inr(r.batchProfit), inr(r.ops), inr(r.payroll), inr(r.companyNet)]),
+        },
+        {
+          title: `Quarterly Net — ${year}`,
+          columns: ['Quarter', 'Batch Profit', 'Ops', 'Payroll', 'Company Net'],
+          rows: netQuarterlyRows.map(r => [r.label, inr(r.batchProfit), inr(r.ops), inr(r.payroll), inr(r.companyNet)]),
+        },
+      ]);
+    } catch (e) { Alert.alert('Export failed', describeError(e)); }
+  };
+
+  const reset = () => {
+    setSearch(''); setFMonth(''); setFTrek(''); setFLead('');
+    setOpsCategory(''); setMarketingOnly(false);
+  };
+
+  /* ── Column configs ────────────────────────────────────────────────── */
+  const ieCols = (first: string): Column[] => [
+    { key: 'name',    label: first,          width: 122 },
+    { key: 'income',  label: 'Total Income', width: 104, align: 'right' },
+    { key: 'expense', label: 'Total Expense',width: 104, align: 'right' },
+    { key: 'profit',  label: 'Total Profit', width: 104, align: 'right' },
+    { key: 'count',   label: 'Batches',      width: 74,  align: 'right' },
+  ];
+  const netCols = (first: string): Column[] => [
+    { key: 'label',       label: first,          width: 108 },
+    { key: 'batchProfit', label: 'Batch Profit', width: 104, align: 'right' },
+    { key: 'ops',         label: 'Ops',          width: 96,  align: 'right' },
+    { key: 'payroll',     label: 'Payroll',      width: 96,  align: 'right' },
+    {
+      key: 'companyNet', label: 'Company Net', width: 112, align: 'right',
+      render: (r: any) => (
+        <Text style={[s.netCell, { color: netColor(r._net) }]}>{r.companyNet}</Text>
+      ),
+    },
+  ];
+
+  if (loading) {
+    return (
+      <AppShell title="Reports">
+        <View style={s.center}><ActivityIndicator size="large" color={Colors.primary} /></View>
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell title="Reports">
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={Colors.primary} />
+        }
+      >
+        <PageTitle
+          icon="document-text-outline"
+          title="Reports"
+          subtitle={`${filteredBatches.length} batches in view`}
+        />
+
+        {!!err && <Panel style={s.errBox}><Text style={s.errText}>{err}</Text></Panel>}
+
+        <KpiGrid>
+          <KpiCard title="Total Income"  value={inr(summary.totalIncome)}  sub="Filtered range" />
+          <KpiCard title="Total Expense" value={inr(summary.totalExpense)} sub="Batch expenses" />
+          <KpiCard title="Total Profit"  value={inr(summary.totalProfit)}
+                   sub={summary.totalIncome ? `${Math.round((summary.totalProfit / summary.totalIncome) * 100)}% margin` : '—'} />
+          <KpiCard title="Batches"       value={String(filteredBatches.length)} sub="Matching filters" />
+        </KpiGrid>
+
+        <KpiGrid>
+          <KpiCard title="Ops Spend"       value={inr(opsTotal)}       sub="Filtered range" />
+          <KpiCard title="Marketing Spend" value={inr(marketingTotal)} sub="Google / Insta / Creators" />
+          <KpiCard title="Payroll"         value={inr(payrollTotal)}   sub="Filtered range" />
+          <KpiCard title="Company Net"     value={inr(companyNet)}     sub="Batch Profit − Ops − Payroll"
+                   valueColor={netColor(companyNet)} />
+        </KpiGrid>
+
+        {/* Filters */}
+        <SearchBar value={search} onChangeText={setSearch} placeholder="Search trek / batch code / lead" />
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+          <Chip label="All Months" active={!fMonth} onPress={() => setFMonth('')} />
+          {months.map(m => <Chip key={m} label={m} active={fMonth === m} onPress={() => setFMonth(m)} />)}
+        </ScrollView>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+          <Chip label="All Treks" active={!fTrek} onPress={() => setFTrek('')} />
+          {treks.map(t => <Chip key={t} label={t} active={fTrek === t} onPress={() => setFTrek(t)} />)}
+        </ScrollView>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+          <Chip label="All Leads" active={!fLead} onPress={() => setFLead('')} />
+          {leadNames.map(l => <Chip key={l} label={l} active={fLead === l} onPress={() => setFLead(l)} />)}
+        </ScrollView>
+
+        <View style={s.btnRow}>
+          <ToolButton label="Reset" icon="refresh-outline" onPress={reset} />
+          <ToolButton label="Export Marketing" icon="megaphone-outline" onPress={doExportMarketing} />
+          <ToolButton label="Export Excel" icon="download-outline" onPress={doExportExcel} />
+          <ToolButton label="Export PDF" icon="document-outline" onPress={doExportPdf} primary />
+        </View>
+
+        {/* Trek-wise */}
+        <SectionTitle icon="trail-sign-outline" title="Trek-wise" />
+        <DataTable
+          columns={ieCols('Trek')}
+          rows={paginate(trekRows, trekPage, size).map(([t, d]: any) => ({
+            id: t, name: t, income: inr(d.income), expense: inr(d.expense),
+            profit: inr(d.profit), count: d.count,
+          }))}
+        />
+        {trekRows.length > size && (
+          <Pager page={trekPage} setPage={setTrekPage} totalPages={Math.ceil(trekRows.length / size)} />
+        )}
+
+        {trekRows.length > 0 && (
+          <Panel>
+            <BarChart data={trekRows.slice(0, 10).map(([name, d]: any) => ({ name, value: d.profit }))} />
+          </Panel>
+        )}
+
+        {/* Monthly */}
+        <SectionTitle icon="calendar-outline" title="Monthly" />
+        <DataTable
+          columns={ieCols('Month')}
+          rows={paginate(monthRows, monthPage, size).map(([m, d]: any) => ({
+            id: m, name: m, income: inr(d.income), expense: inr(d.expense),
+            profit: inr(d.profit), count: d.count,
+          }))}
+        />
+        {monthRows.length > size && (
+          <Pager page={monthPage} setPage={setMonthPage} totalPages={Math.ceil(monthRows.length / size)} />
+        )}
+
+        {/* Lead-wise */}
+        <SectionTitle icon="people-outline" title="Lead-wise" />
+        <DataTable
+          columns={[
+            { key: 'lead',  label: 'Lead',          width: 150 },
+            { key: 'count', label: 'Batches',       width: 84, align: 'right' },
+            { key: 'paid',  label: 'Total Paid to Lead', width: 140, align: 'right' },
+          ]}
+          rows={paginate(leadRows, leadPage, size).map(([l, d]: any) => ({
+            id: l, lead: l, count: d.count, paid: inr(d.paid),
+          }))}
+        />
+        {leadRows.length > size && (
+          <Pager page={leadPage} setPage={setLeadPage} totalPages={Math.ceil(leadRows.length / size)} />
+        )}
+
+        {/* Ops expenses */}
+        <SectionTitle icon="briefcase-outline" title="Ops Expenses (by Category)" />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+          <Chip label="All Categories" active={!opsCategory} onPress={() => setOpsCategory('')} />
+          <Chip label="Marketing only" active={marketingOnly} onPress={() => setMarketingOnly(v => !v)} />
+          {opsRows.map(([c]) => (
+            <Chip key={c} label={catLabel(c)} active={opsCategory === c} onPress={() => setOpsCategory(c)} />
+          ))}
+        </ScrollView>
+        <DataTable
+          columns={[
+            { key: 'category', label: 'Category', width: 170 },
+            { key: 'amount',   label: 'Amount',   width: 120, align: 'right' },
+          ]}
+          rows={paginate(opsRows, opsPage, size).map(([c, v]) => ({
+            id: c, category: catLabel(c), amount: inr(v),
+          }))}
+        />
+        {opsRows.length > size && (
+          <Pager page={opsPage} setPage={setOpsPage} totalPages={Math.ceil(opsRows.length / size)} />
+        )}
+
+        {marketingTotal > 0 && (
+          <>
+            <SectionTitle icon="megaphone-outline" title="Marketing Breakdown" />
+            <Panel><DonutChart data={marketingPie} /></Panel>
+          </>
+        )}
+
+        {/* Company net */}
+        <SectionTitle icon="business-outline" title="Company Net — Batches − Ops − Payroll" />
+        <View style={s.chipRowStatic}>
+          {years.map(y => (
+            <ToolButton key={y} label={y} onPress={() => setYear(Number(y))} primary={Number(y) === year} />
+          ))}
+        </View>
+
+        <SectionTitle icon="calendar-number-outline" title={`Monthly Net — ${year}`} />
+        <DataTable
+          columns={netCols('Month')}
+          rows={netMonthlyRows.map(r => ({
+            id: r.mk, label: r.label, batchProfit: inr(r.batchProfit), ops: inr(r.ops),
+            payroll: inr(r.payroll), companyNet: inr(r.companyNet), _net: r.companyNet,
+          }))}
+        />
+
+        <SectionTitle icon="grid-outline" title={`Quarterly Net — ${year}`} />
+        <DataTable
+          columns={netCols('Quarter')}
+          rows={netQuarterlyRows.map((r, i) => ({
+            id: i, label: r.label, batchProfit: inr(r.batchProfit), ops: inr(r.ops),
+            payroll: inr(r.payroll), companyNet: inr(r.companyNet), _net: r.companyNet,
+          }))}
+        />
+
+        <View style={{ height: 28 }} />
+      </ScrollView>
+    </AppShell>
+  );
+}
+
+const s = StyleSheet.create({
+  scroll:        { padding: 16, gap: 12, paddingBottom: 40 },
+  center:        { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
+  chipRow:       { gap: 8, paddingRight: 8 },
+  chipRowStatic: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  btnRow:        { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+  netCell:       { fontSize: 12.5, fontWeight: '800', textAlign: 'right' },
+  errBox:        { backgroundColor: Colors.dangerBg, borderColor: Colors.danger },
+  errText:       { color: Colors.danger, fontSize: 12.5 },
+});

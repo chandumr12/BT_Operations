@@ -1,0 +1,269 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, RefreshControl, TouchableOpacity,
+} from 'react-native';
+import { collection, getDocs, doc, deleteDoc } from 'firebase/firestore';
+import { AppShell } from '@/components/AppShell';
+import { PageTitle, Panel, SearchBar, Chip } from '@/components/ui';
+import {
+  DataTable, Pager, paginate, ToolButton, Column, KpiCard, KpiGrid,
+} from '@/components/finance/FinanceUI';
+import { FinanceBatchModal, FinanceBatch } from '@/components/finance/FinanceBatchModal';
+import { Colors } from '@/constants/Colors';
+import { financeDb } from '@/utils/financeFirebase';
+import { inr, monthLabel } from '@/utils/finance';
+import { exportExcel } from '@/utils/financeExport';
+import { describeError } from '@/utils/errors';
+import { confirmAction } from '@/utils/confirm';
+
+export default function FinanceBatchesScreen() {
+  const [batches, setBatches] = useState<FinanceBatch[]>([]);
+  const [treks,   setTreks]   = useState<any[]>([]);
+  const [leads,   setLeads]   = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [err, setErr] = useState('');
+
+  const [search, setSearch] = useState('');
+  const [month,  setMonth]  = useState('');
+  const [trek,   setTrek]   = useState('');
+  const [sortAsc, setSortAsc] = useState(false);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const [editing,  setEditing]  = useState<FinanceBatch | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const load = useCallback(async () => {
+    setErr('');
+    try {
+      const [bs, ts, ls] = await Promise.all([
+        getDocs(collection(financeDb, 'batches')),
+        getDocs(collection(financeDb, 'treks')),
+        getDocs(collection(financeDb, 'leads')),
+      ]);
+      setBatches(bs.docs.map(d => ({ id: d.id, ...d.data() } as FinanceBatch)));
+      setTreks(ts.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLeads(ls.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (e) {
+      setErr(describeError(e));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [search, month, trek]);
+
+  const filtered = useMemo(() => {
+    const term = search.toLowerCase();
+    return batches
+      .filter(b => {
+        const matchesSearch =
+          (b.batchCode || '').toLowerCase().includes(term) ||
+          (b.trekName  || '').toLowerCase().includes(term);
+        const mk = (b.date || b.startDate || '').slice(0, 7);
+        return matchesSearch
+          && (month ? mk === month : true)
+          && (trek  ? b.trekName === trek : true);
+      })
+      .sort((a, b) => {
+        const da = a.date || a.startDate || '';
+        const db = b.date || b.startDate || '';
+        return sortAsc ? da.localeCompare(db) : db.localeCompare(da);
+      });
+  }, [batches, search, month, trek, sortAsc]);
+
+  const totals = useMemo(() => ({
+    income:  filtered.reduce((s, b) => s + Number(b.totalIncome  || 0), 0),
+    expense: filtered.reduce((s, b) => s + Number(b.totalExpense || 0), 0),
+    profit:  filtered.reduce((s, b) => s + Number(b.totalProfit  || 0), 0),
+  }), [filtered]);
+
+  const months = useMemo(
+    () => Array.from(new Set(batches.map(b => (b.date || b.startDate || '').slice(0, 7)).filter(Boolean))).sort().reverse(),
+    [batches],
+  );
+  const trekNames = useMemo(
+    () => Array.from(new Set(batches.map(b => b.trekName || '').filter(Boolean))).sort(),
+    [batches],
+  );
+
+  const remove = async (b: FinanceBatch) => {
+    const ok = await confirmAction({
+      title: 'Delete batch?',
+      message: `${b.batchCode || 'This batch'} and its finance record will be permanently removed.`,
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok || !b.id) return;
+    try {
+      await deleteDoc(doc(financeDb, 'batches', b.id));
+      setBatches(prev => prev.filter(x => x.id !== b.id));
+    } catch (e) {
+      Alert.alert('Delete failed', describeError(e));
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      await exportExcel(`BT_Finance_Batches${month ? `_${month}` : ''}`, [{
+        name: 'Batches',
+        rows: filtered.map(b => ({
+          'Batch Code': b.batchCode || '',
+          Date: b.date || b.startDate || '',
+          Trek: b.trekName || '',
+          Income: Number(b.totalIncome || 0),
+          Expense: Number(b.totalExpense || 0),
+          Profit: Number(b.totalProfit || 0),
+          'Total Leads': (b.leadPayments || []).filter(l => l?.name && Number(l?.amount || 0) > 0).length,
+          'Lead Payment': (b.leadPayments || []).reduce((s, l) => s + Number(l?.amount || 0), 0),
+        })),
+      }]);
+    } catch (e) { Alert.alert('Export failed', describeError(e)); }
+  };
+
+  const rows = paginate(filtered, page, pageSize).map(b => {
+    const leadCount = (b.leadPayments || []).filter(l => l?.name && Number(l?.amount || 0) > 0).length;
+    const leadTotal = (b.leadPayments || []).reduce((s, l) => s + Number(l?.amount || 0), 0);
+    return {
+      id: b.id, _raw: b,
+      batchCode: b.batchCode || '-',
+      date: b.date || b.startDate || '-',
+      trek: b.trekName || '-',
+      income: inr(b.totalIncome), expense: inr(b.totalExpense), profit: inr(b.totalProfit),
+      _profit: Number(b.totalProfit || 0),
+      leadCount, leadTotal: inr(leadTotal),
+    };
+  });
+
+  const cols: Column[] = [
+    { key: 'batchCode', label: 'Batch Code', width: 96 },
+    { key: 'date',      label: 'Date',       width: 96 },
+    { key: 'trek',      label: 'Trek',       width: 120 },
+    { key: 'income',    label: 'Income',     width: 92, align: 'right' },
+    { key: 'expense',   label: 'Expense',    width: 92, align: 'right' },
+    {
+      key: 'profit', label: 'Profit', width: 92, align: 'right',
+      render: (r: any) => (
+        <Text style={[s.profitCell, { color: r._profit >= 0 ? Colors.success : Colors.danger }]}>
+          {r.profit}
+        </Text>
+      ),
+    },
+    { key: 'leadCount', label: 'Leads',        width: 60, align: 'right' },
+    { key: 'leadTotal', label: 'Lead Payment', width: 100, align: 'right' },
+    {
+      key: 'actions', label: 'Actions', width: 132,
+      render: (r: any) => (
+        <View style={s.actionRow}>
+          <TouchableOpacity style={s.viewBtn} onPress={() => setEditing(r._raw)}>
+            <Text style={s.viewText}>View</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.delBtn} onPress={() => remove(r._raw)}>
+            <Text style={s.delText}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      ),
+    },
+  ];
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+
+  if (loading) {
+    return (
+      <AppShell title="Finance Batches">
+        <View style={s.center}><ActivityIndicator size="large" color={Colors.primary} /></View>
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell title="Finance Batches">
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={Colors.primary} />
+        }
+      >
+        <PageTitle
+          icon="calendar-outline"
+          title="Finance Batches"
+          subtitle={`${filtered.length} of ${batches.length} batches`}
+        />
+
+        {!!err && <Panel style={s.errBox}><Text style={s.errText}>{err}</Text></Panel>}
+
+        <KpiGrid>
+          <KpiCard title="Total Income"  value={inr(totals.income)}  sub="Filtered range" />
+          <KpiCard title="Total Expense" value={inr(totals.expense)} sub="Batch expenses" />
+          <KpiCard title="Total Profit"  value={inr(totals.profit)}  sub="Income − Expense"
+                   valueColor={totals.profit >= 0 ? Colors.success : Colors.danger} />
+          <KpiCard title="Batches"       value={String(filtered.length)} sub="Matching filters" />
+        </KpiGrid>
+
+        <SearchBar value={search} onChangeText={setSearch} placeholder="Search batch code or trek" />
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+          <Chip label="All Months" active={!month} onPress={() => setMonth('')} />
+          {months.map(m => (
+            <Chip key={m} label={monthLabel(m)} active={month === m} onPress={() => setMonth(m)} />
+          ))}
+        </ScrollView>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chipRow}>
+          <Chip label="All Treks" active={!trek} onPress={() => setTrek('')} />
+          {trekNames.map(t => (
+            <Chip key={t} label={t} active={trek === t} onPress={() => setTrek(t)} />
+          ))}
+        </ScrollView>
+
+        <View style={s.btnRow}>
+          <ToolButton
+            label={sortAsc ? 'Date ↑' : 'Date ↓'}
+            icon="swap-vertical-outline"
+            onPress={() => setSortAsc(v => !v)}
+          />
+          <ToolButton label="Export Excel" icon="download-outline" onPress={handleExport} />
+          <View style={{ flex: 1 }} />
+          <ToolButton label="Add Batch" icon="add" onPress={() => setCreating(true)} primary />
+        </View>
+
+        <DataTable columns={cols} rows={rows} emptyText="No batches match your filters." />
+        {filtered.length > 0 && (
+          <Pager page={page} setPage={setPage} totalPages={totalPages}
+                 pageSize={pageSize} setPageSize={setPageSize} />
+        )}
+
+        <View style={{ height: 28 }} />
+      </ScrollView>
+
+      {(creating || editing) && (
+        <FinanceBatchModal
+          batch={editing}
+          treks={treks}
+          leads={leads}
+          onClose={() => { setCreating(false); setEditing(null); }}
+          onSaved={load}
+        />
+      )}
+    </AppShell>
+  );
+}
+
+const s = StyleSheet.create({
+  scroll:     { padding: 16, gap: 12, paddingBottom: 40 },
+  center:     { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
+  chipRow:    { gap: 8, paddingRight: 8 },
+  btnRow:     { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+  profitCell: { fontSize: 12.5, fontWeight: '800', textAlign: 'right' },
+  actionRow:  { flexDirection: 'row', gap: 6 },
+  viewBtn:    { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 8, backgroundColor: Colors.slate100 },
+  viewText:   { fontSize: 11.5, fontWeight: '700', color: Colors.slate700 },
+  delBtn:     { paddingHorizontal: 11, paddingVertical: 6, borderRadius: 8, backgroundColor: Colors.danger },
+  delText:    { fontSize: 11.5, fontWeight: '700', color: Colors.white },
+  errBox:     { backgroundColor: Colors.dangerBg, borderColor: Colors.danger },
+  errText:    { color: Colors.danger, fontSize: 12.5 },
+});

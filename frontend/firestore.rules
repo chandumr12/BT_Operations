@@ -9,6 +9,18 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
+    // Pickup points & trek protocol: same shareable-link pattern as packing
+    // lists — public read so the /pickup/:slug and /protocol/:slug pages
+    // work for logged-out leads/participants, auth-only write.
+    match /pickup_points/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    match /trek_protocols/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
     // Vehicles: public read for vendor dashboard, authenticated write
     match /vehicles/{docId} {
       allow read: if true;

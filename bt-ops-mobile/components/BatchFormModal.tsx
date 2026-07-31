@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView,
-  Modal, ActivityIndicator, Alert, FlatList,
+  Modal, ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import { Button } from '@/components/Button';
 import { Avatar } from '@/components/ui';
 import { ModalSafeArea } from '@/components/ModalSafeArea';
+import { PickerSheet, PickerTrigger } from '@/components/PickerSheet';
 import { Colors } from '@/constants/Colors';
 import api from '@/utils/api';
 
@@ -17,32 +17,52 @@ interface AssignedLead { userId: string; displayName: string; isSuperLead?: bool
 
 const STATUS_OPTIONS = ['Open', 'Closed', 'Completed', 'Cancelled'];
 
+export interface EditableBatch {
+  id: string;
+  batchCode?: string;
+  trekId?: string;
+  startDate?: string;
+  endDate?: string;
+  maxCapacity?: number;
+  currentRegistrations?: number;
+  status?: string;
+  assignedLeads?: AssignedLead[];
+  transportVendor?: string;
+  stayVendor?: string;
+  internalNotes?: string;
+}
+
 /**
- * Mirrors the web app's "Create New Batch" dialog
+ * Mirrors the web app's "Create New Batch" / "Edit batch" dialog
  * (frontend/src/pages/BatchPlanning.js BatchFormDialog) — same fields,
- * same POST /batches payload shape. Rendered as a single native <Modal>;
- * the trek-lead picker below is an inline overlay (not a second <Modal>)
- * since stacking two RN Modals is a known source of iOS rendering glitches.
+ * same POST/PATCH /batches payload shape. Rendered as a single native
+ * <Modal>; the trek-lead picker below is an inline overlay (not a second
+ * <Modal>) since stacking two RN Modals is a known source of iOS rendering
+ * glitches.
  */
-export function BatchFormModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+export function BatchFormModal({ editingBatch, onClose, onSaved }: {
+  editingBatch?: EditableBatch | null; onClose: () => void; onSaved: () => void;
+}) {
   const [treks, setTreks] = useState<Trek[]>([]);
   const [users, setUsers] = useState<BasicUser[]>([]);
   const [loadingLists, setLoadingLists] = useState(true);
 
-  const [batchCode, setBatchCode] = useState('');
-  const [trekId, setTrekId] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [maxCapacity, setMaxCapacity] = useState('30');
-  const [currentRegistrations, setCurrentRegistrations] = useState('0');
-  const [status, setStatus] = useState('Open');
-  const [assignedLeads, setAssignedLeads] = useState<AssignedLead[]>([]);
-  const [transportVendor, setTransportVendor] = useState('');
-  const [stayVendor, setStayVendor] = useState('');
-  const [internalNotes, setInternalNotes] = useState('');
+  const [batchCode, setBatchCode] = useState(editingBatch?.batchCode ?? '');
+  const [trekId, setTrekId] = useState(editingBatch?.trekId ?? '');
+  const [startDate, setStartDate] = useState(editingBatch?.startDate ?? '');
+  const [endDate, setEndDate] = useState(editingBatch?.endDate ?? '');
+  const [maxCapacity, setMaxCapacity] = useState(String(editingBatch?.maxCapacity ?? 30));
+  const [currentRegistrations, setCurrentRegistrations] = useState(String(editingBatch?.currentRegistrations ?? 0));
+  const [status, setStatus] = useState(editingBatch?.status ?? 'Open');
+  const [assignedLeads, setAssignedLeads] = useState<AssignedLead[]>(editingBatch?.assignedLeads ?? []);
+  const [transportVendor, setTransportVendor] = useState(editingBatch?.transportVendor ?? '');
+  const [stayVendor, setStayVendor] = useState(editingBatch?.stayVendor ?? '');
+  const [internalNotes, setInternalNotes] = useState(editingBatch?.internalNotes ?? '');
 
   const [leadPickerOpen, setLeadPickerOpen] = useState(false);
   const [leadSearch, setLeadSearch] = useState('');
+  const [trekPickerOpen, setTrekPickerOpen] = useState(false);
+  const [statusPickerOpen, setStatusPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -78,24 +98,26 @@ export function BatchFormModal({ onClose, onSaved }: { onClose: () => void; onSa
     if (!maxCapacity.trim()){ Alert.alert('Capacity required', 'Enter max capacity.'); return; }
 
     setSaving(true);
+    const payload = {
+      batchCode: batchCode.trim(),
+      trekId,
+      startDate: startDate.trim(),
+      endDate: endDate.trim(),
+      maxCapacity: parseInt(maxCapacity, 10) || 0,
+      currentRegistrations: parseInt(currentRegistrations, 10) || 0,
+      status,
+      assignedLeads,
+      transportVendor: transportVendor.trim(),
+      stayVendor: stayVendor.trim(),
+      internalNotes: internalNotes.trim(),
+    };
     try {
-      await api.post('/batches', {
-        batchCode: batchCode.trim(),
-        trekId,
-        startDate: startDate.trim(),
-        endDate: endDate.trim(),
-        maxCapacity: parseInt(maxCapacity, 10) || 0,
-        currentRegistrations: parseInt(currentRegistrations, 10) || 0,
-        status,
-        assignedLeads,
-        transportVendor: transportVendor.trim(),
-        stayVendor: stayVendor.trim(),
-        internalNotes: internalNotes.trim(),
-      });
+      if (editingBatch) await api.patch(`/batches/${editingBatch.id}`, payload);
+      else await api.post('/batches', payload);
       onSaved();
       onClose();
     } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.detail ?? 'Could not create batch');
+      Alert.alert('Error', e.response?.data?.detail ?? `Could not ${editingBatch ? 'update' : 'create'} batch`);
     } finally { setSaving(false); }
   };
 
@@ -107,11 +129,11 @@ export function BatchFormModal({ onClose, onSaved }: { onClose: () => void; onSa
         <ModalSafeArea style={s.safe}>
           <View style={s.header}>
             <View style={s.headerIcon}>
-              <Ionicons name="add" size={18} color={Colors.white} />
+              <Ionicons name={editingBatch ? 'create-outline' : 'add'} size={18} color={Colors.white} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={s.headerTitle}>Create New Batch</Text>
-              <Text style={s.headerSub}>Add a new trek batch to the system</Text>
+              <Text style={s.headerTitle}>{editingBatch ? `Edit — ${editingBatch.batchCode}` : 'Create New Batch'}</Text>
+              <Text style={s.headerSub}>{editingBatch ? 'Update batch details and assignments' : 'Add a new trek batch to the system'}</Text>
             </View>
             <TouchableOpacity onPress={onClose} hitSlop={10}>
               <Ionicons name="close" size={22} color="rgba(255,255,255,0.85)" />
@@ -121,7 +143,13 @@ export function BatchFormModal({ onClose, onSaved }: { onClose: () => void; onSa
           {loadingLists ? (
             <View style={s.centerFill}><ActivityIndicator color={Colors.primary} /></View>
           ) : (
-            <ScrollView contentContainerStyle={s.form} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              contentContainerStyle={s.form}
+              keyboardShouldPersistTaps="handled"
+              // Lets a focused field scroll clear of the keyboard rather than
+              // sitting underneath it.
+              automaticallyAdjustKeyboardInsets
+            >
               <View style={s.row2}>
                 <View style={s.field}>
                   <Text style={s.label}>BATCH CODE *</Text>
@@ -130,12 +158,11 @@ export function BatchFormModal({ onClose, onSaved }: { onClose: () => void; onSa
                 </View>
                 <View style={s.field}>
                   <Text style={s.label}>TREK *</Text>
-                  <View style={s.pickerWrap}>
-                    <Picker selectedValue={trekId} onValueChange={setTrekId} style={s.picker}>
-                      <Picker.Item label="Select trek" value="" />
-                      {treks.map(t => <Picker.Item key={t.id} label={t.name} value={t.id} />)}
-                    </Picker>
-                  </View>
+                  <PickerTrigger
+                    label={treks.find(t => t.id === trekId)?.name}
+                    placeholder="Select trek"
+                    onPress={() => setTrekPickerOpen(true)}
+                  />
                 </View>
               </View>
 
@@ -167,11 +194,7 @@ export function BatchFormModal({ onClose, onSaved }: { onClose: () => void; onSa
 
               <View style={s.field}>
                 <Text style={s.label}>STATUS</Text>
-                <View style={s.pickerWrap}>
-                  <Picker selectedValue={status} onValueChange={setStatus} style={s.picker}>
-                    {STATUS_OPTIONS.map(o => <Picker.Item key={o} label={o} value={o} />)}
-                  </Picker>
-                </View>
+                <PickerTrigger label={status} onPress={() => setStatusPickerOpen(true)} />
               </View>
 
               <View style={s.field}>
@@ -227,16 +250,23 @@ export function BatchFormModal({ onClose, onSaved }: { onClose: () => void; onSa
               </View>
 
               <View style={s.btnRow}>
-                <Button title="Create Batch" onPress={save} loading={saving} style={{ flex: 1 }} />
+                <Button title={editingBatch ? 'Save Changes' : 'Create Batch'} onPress={save} loading={saving} style={{ flex: 1 }} />
                 <Button title="Cancel" onPress={onClose} variant="outline" style={s.cancelBtn} />
               </View>
             </ScrollView>
           )}
         </ModalSafeArea>
 
-        {/* Trek-lead picker — inline overlay within the same Modal, not a nested one */}
+        {/* Trek-lead picker — inline overlay within the same Modal, not a nested one.
+            The sheet is bottom-anchored and its search field autofocuses, so without
+            KeyboardAvoidingView the on-screen keyboard covers the user list (and the
+            Done button) entirely on iOS. Wrapping the overlay lifts the sheet above
+            the keyboard instead. */}
         {leadPickerOpen && (
-          <View style={s.overlay}>
+          <KeyboardAvoidingView
+            style={s.overlay}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          >
             <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setLeadPickerOpen(false)} />
             <ModalSafeArea style={s.sheet} edges={['bottom']}>
               <View style={s.sheetHandle} />
@@ -255,6 +285,7 @@ export function BatchFormModal({ onClose, onSaved }: { onClose: () => void; onSa
                 data={filteredUsers}
                 keyExtractor={u => u.uid}
                 style={{ maxHeight: 340 }}
+                keyboardShouldPersistTaps="handled"
                 renderItem={({ item: u }) => {
                   const checked = !!assignedLeads.find(l => l.userId === u.uid);
                   return (
@@ -271,8 +302,25 @@ export function BatchFormModal({ onClose, onSaved }: { onClose: () => void; onSa
                 <Text style={s.doneBtnText}>Done</Text>
               </TouchableOpacity>
             </ModalSafeArea>
-          </View>
+          </KeyboardAvoidingView>
         )}
+
+        <PickerSheet
+          visible={trekPickerOpen}
+          onClose={() => setTrekPickerOpen(false)}
+          title="Select trek"
+          value={trekId}
+          onChange={setTrekId}
+          options={treks.map(t => ({ label: t.name, value: t.id }))}
+        />
+        <PickerSheet
+          visible={statusPickerOpen}
+          onClose={() => setStatusPickerOpen(false)}
+          title="Status"
+          value={status}
+          onChange={setStatus}
+          options={STATUS_OPTIONS.map(o => ({ label: o, value: o }))}
+        />
       </View>
     </Modal>
   );

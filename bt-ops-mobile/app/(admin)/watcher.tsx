@@ -20,6 +20,9 @@ interface Watcher   {
   interval: number; last_alerted: string | null; started_by: string;
 }
 
+const MAX_NUMBERS = 5;
+const STOPPABLE = ['starting', 'running', 'available'];
+
 const fmtTime = (iso: string | null) => {
   if (!iso) return '—';
   return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -41,8 +44,19 @@ export default function WatcherScreen() {
   const [durationHours,  setDurationHours]  = useState('2');
   const [intervalSecs,   setIntervalSecs]   = useState('30');
 
+  // WhatsApp alert numbers
+  const [notifyNumbers,  setNotifyNumbers]  = useState<string[]>([]);
+  const [numInput,       setNumInput]       = useState('');
+  const [savingNums,     setSavingNums]     = useState(false);
+  const [testing,        setTesting]        = useState(false);
+
+  // Bulk-select / clear history
+  const [selectedIds,    setSelectedIds]    = useState<Set<string>>(new Set());
+  const [clearing,       setClearing]       = useState(false);
+
   useEffect(() => {
     api.get('/trek-watcher/districts').then(r => setDistricts(r.data)).catch(() => {});
+    api.get('/trek-watcher/settings').then(r => setNotifyNumbers(r.data?.notify_numbers ?? [])).catch(() => {});
     fetchAll();
     const t = setInterval(fetchAll, 5000);
     return () => clearInterval(t);
@@ -92,7 +106,73 @@ export default function WatcherScreen() {
 
   const onRefresh = async () => { setRefreshing(true); fetchAll(); setRefreshing(false); };
 
-  const running = watchers.filter(w => ['starting','running','available'].includes(w.status)).length;
+  // ── Select / bulk clear history ──────────────────────────────────────────
+  const toggleSelect = (job_id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(job_id) ? next.delete(job_id) : next.add(job_id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => prev.size === watchers.length ? new Set() : new Set(watchers.map(w => w.job_id)));
+  };
+
+  const clearSelected = async () => {
+    if (selectedIds.size === 0) return;
+    setClearing(true);
+    try {
+      await Promise.all([...selectedIds].map(id => api.delete(`/trek-watcher/history/${id}`)));
+      setSelectedIds(new Set());
+      fetchAll();
+    } catch { Alert.alert('Error', 'Failed to clear some watchers'); }
+    finally { setClearing(false); }
+  };
+
+  // ── WhatsApp notify numbers ──────────────────────────────────────────────
+  const addNumber = () => {
+    const digits = numInput.replace(/\D/g, '');
+    if (!digits || digits.length < 10) { Alert.alert('Invalid number', 'Enter a valid phone number'); return; }
+    if (notifyNumbers.length >= MAX_NUMBERS) { Alert.alert('Limit reached', `Maximum ${MAX_NUMBERS} numbers allowed`); return; }
+    if (notifyNumbers.includes(numInput.trim())) { Alert.alert('Duplicate', 'Number already added'); return; }
+    setNotifyNumbers(n => [...n, numInput.trim()]);
+    setNumInput('');
+  };
+
+  const removeNumber = (idx: number) => setNotifyNumbers(n => n.filter((_, i) => i !== idx));
+
+  const saveNumbers = async () => {
+    let toSave = [...notifyNumbers];
+    if (numInput.trim()) {
+      const digits = numInput.replace(/\D/g, '');
+      if (digits.length >= 10 && toSave.length < MAX_NUMBERS && !toSave.includes(numInput.trim())) {
+        toSave = [...toSave, numInput.trim()];
+        setNotifyNumbers(toSave);
+        setNumInput('');
+      }
+    }
+    if (toSave.length === 0) { Alert.alert('Nothing to save', 'Add at least one number before saving'); return; }
+    setSavingNums(true);
+    try {
+      await api.put('/trek-watcher/settings', { notify_numbers: toSave });
+      Alert.alert('Saved', `Saved ${toSave.length} number(s)!`);
+    } catch { Alert.alert('Error', 'Failed to save numbers'); }
+    finally { setSavingNums(false); }
+  };
+
+  const testWhatsApp = async () => {
+    if (notifyNumbers.length === 0) { Alert.alert('No numbers', 'Add and save at least one number first'); return; }
+    setTesting(true);
+    try {
+      const r = await api.post('/trek-watcher/test-whatsapp');
+      Alert.alert('Sent', `Test message sent to ${r.data.sent_to?.length ?? 0} number(s)!`);
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.detail ?? 'Test failed — check backend logs');
+    } finally { setTesting(false); }
+  };
+
+  const running = watchers.filter(w => STOPPABLE.includes(w.status)).length;
 
   return (
     <AppShell>
@@ -177,11 +257,73 @@ export default function WatcherScreen() {
           <Button title="Start Watching" onPress={startWatcher} loading={starting} />
         </Card>
 
+        {/* WhatsApp Alerts */}
+        <Card padding={16} style={{ gap: 10 }}>
+          <View style={s.waHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.sectionTitle}>WhatsApp Alerts</Text>
+              <Text style={s.waSub}>Send ticket alert to these numbers (max {MAX_NUMBERS})</Text>
+            </View>
+            <Ionicons name="notifications-outline" size={18} color={Colors.gray400} />
+          </View>
+
+          {notifyNumbers.length === 0 ? (
+            <Text style={s.emptyText}>No numbers added yet</Text>
+          ) : (
+            notifyNumbers.map((num, i) => (
+              <View key={i} style={s.numRow}>
+                <Ionicons name="call-outline" size={13} color={Colors.gray400} />
+                <Text style={s.numText}>{num}</Text>
+                <TouchableOpacity onPress={() => removeNumber(i)}>
+                  <Ionicons name="trash-outline" size={15} color={Colors.gray300} />
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+
+          {notifyNumbers.length < MAX_NUMBERS && (
+            <View style={s.numAddRow}>
+              <TextInput
+                style={[s.input, { flex: 1 }]} placeholder="9876543210" keyboardType="phone-pad"
+                placeholderTextColor={Colors.gray400} value={numInput} onChangeText={setNumInput}
+                onSubmitEditing={addNumber}
+              />
+              <TouchableOpacity style={s.numAddBtn} onPress={addNumber}>
+                <Ionicons name="add" size={18} color={Colors.gray600} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <Button title={savingNums ? 'Saving…' : 'Save Numbers'} onPress={saveNumbers} loading={savingNums} />
+          <Button title={testing ? 'Sending…' : 'Send Test Message'} onPress={testWhatsApp}
+            loading={testing} disabled={notifyNumbers.length === 0} variant="outline" />
+        </Card>
+
         {/* Watcher list */}
-        <Text style={s.sectionTitle}>Watchers ({watchers.length})</Text>
+        <View style={s.waHeaderRow}>
+          <Text style={s.sectionTitle}>Watchers ({watchers.length})</Text>
+          {watchers.length > 0 && (
+            <TouchableOpacity style={s.selectAllBtn} onPress={toggleSelectAll}>
+              <Ionicons
+                name={selectedIds.size === watchers.length ? 'checkbox' : 'square-outline'}
+                size={16} color={selectedIds.size === watchers.length ? Colors.info : Colors.gray400}
+              />
+              <Text style={s.selectAllText}>Select all</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        {selectedIds.size > 0 && (
+          <TouchableOpacity style={s.clearSelectedBtn} onPress={clearSelected} disabled={clearing}>
+            {clearing ? <ActivityIndicator size="small" color={Colors.danger} /> : <Ionicons name="trash-outline" size={13} color={Colors.danger} />}
+            <Text style={s.clearSelectedText}>{clearing ? 'Clearing…' : `Clear ${selectedIds.size} selected`}</Text>
+          </TouchableOpacity>
+        )}
         {watchers.map(w => (
-          <Card key={w.job_id} padding={14} style={[s.watchCard, w.status === 'available' && s.watchCardAvail]}>
+          <Card key={w.job_id} padding={14} style={[s.watchCard, w.status === 'available' && s.watchCardAvail, selectedIds.has(w.job_id) && s.watchCardSelected]}>
             <View style={s.watchTop}>
+              <TouchableOpacity onPress={() => toggleSelect(w.job_id)} style={{ paddingTop: 2 }}>
+                <Ionicons name={selectedIds.has(w.job_id) ? 'checkbox' : 'square-outline'} size={18} color={selectedIds.has(w.job_id) ? Colors.info : Colors.gray300} />
+              </TouchableOpacity>
               <View style={{ flex: 1 }}>
                 <Text style={s.watchTrek}>{w.trek_name}</Text>
                 <Text style={s.watchDate}>{w.date}</Text>
@@ -193,10 +335,12 @@ export default function WatcherScreen() {
             )}
             <View style={s.watchMeta}>
               <MetaChip icon="refresh-outline"    value={`${w.checks} checks`} />
-              <MetaChip icon="time-outline"       value={`${w.interval}s`} />
+              <MetaChip icon="time-outline"       value={`every ${w.interval}s`} />
+              <MetaChip icon="eye-outline"         value={`checked ${fmtTime(w.last_checked)}`} />
+              {!!w.started_by && <MetaChip icon="person-outline" value={w.started_by} />}
               {w.last_alerted && <MetaChip icon="notifications-outline" value={fmtTime(w.last_alerted)} color={Colors.success} />}
             </View>
-            {['starting','running','available'].includes(w.status) && (
+            {STOPPABLE.includes(w.status) && (
               <TouchableOpacity style={s.stopBtn} onPress={() => stopWatcher(w.job_id)}>
                 <Ionicons name="stop-circle-outline" size={15} color={Colors.danger} />
                 <Text style={s.stopText}>Stop</Text>
@@ -257,8 +401,21 @@ const s = StyleSheet.create({
   input:      { height: 48, borderRadius: 12, borderWidth: 1.5, borderColor: Colors.border, paddingHorizontal: 14, fontSize: 14, color: Colors.gray900, backgroundColor: Colors.gray50 },
   row2:       { flexDirection: 'row', gap: 12 },
 
+  waHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  waSub:       { fontSize: 11, color: Colors.gray400, marginTop: 2 },
+  numRow:      { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.gray50, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  numText:     { flex: 1, fontSize: 13, color: Colors.gray700, fontVariant: ['tabular-nums'] },
+  numAddRow:   { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  numAddBtn:   { width: 44, height: 44, borderRadius: 10, backgroundColor: Colors.gray100, alignItems: 'center', justifyContent: 'center' },
+
+  selectAllBtn:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  selectAllText: { fontSize: 12, fontWeight: '600', color: Colors.gray500 },
+  clearSelectedBtn:  { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: Colors.dangerBg, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 },
+  clearSelectedText: { fontSize: 12, fontWeight: '600', color: Colors.danger },
+
   watchCard:      {},
   watchCardAvail: { backgroundColor: Colors.successBg, borderColor: Colors.success + '40' },
+  watchCardSelected: { borderColor: Colors.info, borderWidth: 1.5 },
   watchTop:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   watchTrek:  { fontSize: 15, fontWeight: '700', color: Colors.gray900 },
   watchDate:  { fontSize: 12, color: Colors.gray500, marginTop: 2 },

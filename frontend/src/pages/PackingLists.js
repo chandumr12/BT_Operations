@@ -64,15 +64,18 @@ export default function PackingLists() {
     setDuplicating(null);
   };
 
-  const copyLink = (slug) => {
-    navigator.clipboard.writeText(`${window.location.origin}/packing/${slug}`);
+  // Standalone static page (frontend/public/packing-list.html) — same page
+  // works whether reached from the web app or shared from the mobile app.
+  const publicUrl = (id) => `${window.location.origin}/packing-list.html?id=${id}`;
+
+  const copyLink = (id) => {
+    navigator.clipboard.writeText(publicUrl(id));
     toast.success('Public link copied!');
   };
 
-  const whatsapp = (slug, name) => {
-    const url = `${window.location.origin}/packing/${slug}`;
+  const whatsapp = (id, name) => {
     const text = encodeURIComponent(
-      `📋 *${name} – Packing List*\n\nHere's what to pack for your trek:\n👉 ${url}\n\n_Powered by BT Ops_`
+      `📋 *${name} – Packing List*\n\nHere's what to pack for your trek:\n👉 ${publicUrl(id)}\n\n_Powered by BT Ops_`
     );
     window.open(`https://wa.me/?text=${text}`, '_blank');
   };
@@ -156,6 +159,15 @@ export default function PackingLists() {
                   <h2 className="font-bold text-slate-900 text-lg mt-3 leading-tight">
                     {cat.name}
                   </h2>
+                  {cat.trekName ? (
+                    <span className="inline-block mt-2 text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                      {cat.trekName}
+                    </span>
+                  ) : (
+                    <span className="inline-block mt-2 text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                      Shared — all treks
+                    </span>
+                  )}
                   {cat.description && (
                     <p className="text-xs text-slate-500 mt-1 line-clamp-1">{cat.description}</p>
                   )}
@@ -173,7 +185,7 @@ export default function PackingLists() {
                         )}
                       </p>
                       <p className="text-[10px] text-slate-300 font-mono truncate">
-                        /packing/{cat.slug}
+                        packing-list.html?id={cat.id}
                       </p>
                     </div>
                   </div>
@@ -200,21 +212,21 @@ export default function PackingLists() {
                   </Button>
                   <Button
                     size="sm" variant="outline"
-                    onClick={() => copyLink(cat.slug)}
+                    onClick={() => copyLink(cat.id)}
                     className="text-xs h-7"
                   >
                     <Copy size={11} className="mr-1" /> Link
                   </Button>
                   <Button
                     size="sm" variant="outline"
-                    onClick={() => whatsapp(cat.slug, cat.name)}
+                    onClick={() => whatsapp(cat.id, cat.name)}
                     className="text-xs h-7 text-green-700 border-green-200 hover:bg-green-50"
                   >
                     <Share2 size={11} className="mr-1" /> WhatsApp
                   </Button>
                   <Button
                     size="sm" variant="outline"
-                    onClick={() => window.open(`/packing/${cat.slug}`, '_blank')}
+                    onClick={() => window.open(publicUrl(cat.id), '_blank')}
                     className="text-xs h-7"
                   >
                     <ExternalLink size={11} />

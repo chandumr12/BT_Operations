@@ -56,7 +56,7 @@ export default function LeadProfileScreen() {
           <Text style={s.heroName}>{profile?.displayName ?? 'Trek Lead'}</Text>
           <Text style={s.heroEmail}>{profile?.email ?? ''}</Text>
           <View style={s.rolePill}>
-            <Text style={s.roleText}>Trek Lead</Text>
+            <Text style={s.roleText}>{profile?.role ?? 'Trek Lead'}</Text>
           </View>
         </View>
 

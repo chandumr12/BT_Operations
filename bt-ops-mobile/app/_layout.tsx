@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { LoadingScreen } from '@/components/LoadingScreen';
 
 function RootGuard() {
-  const { user, profile, loading, isAdmin } = useAuth();
+  const { user, profile, loading } = useAuth();
   const segments = useSegments();
   const router   = useRouter();
 
@@ -13,14 +13,17 @@ function RootGuard() {
     if (loading) return;
     const inAuth  = segments[0] === 'login';
     const inAdmin = segments[0] === '(admin)';
-    const inLead  = segments[0] === '(lead)';
 
+    // Every role lands in the (admin) group — it's the single shell with the
+    // full drawer nav, and constants/nav.ts already filters each menu item
+    // by role (mirroring the web sidebar), so Trek Lead/Coordinator simply
+    // see a shorter menu rather than being routed into a separate, far
+    // smaller (lead) tab bar that was missing Calendar, Meet the Team, My
+    // Availability, and the full role-aware Dashboard entirely.
     if (!user) {
       if (!inAuth) router.replace('/login');
-    } else if (isAdmin) {
-      if (!inAdmin) router.replace('/(admin)/');
-    } else {
-      if (!inLead) router.replace('/(lead)/');
+    } else if (!inAdmin) {
+      router.replace('/(admin)/');
     }
   }, [user, profile, loading]);
 

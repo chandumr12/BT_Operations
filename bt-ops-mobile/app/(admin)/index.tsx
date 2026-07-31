@@ -1,13 +1,28 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, RefreshControl, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppShell } from '@/components/AppShell';
-import { StatCard, Panel, Pill, STATUS_STYLE, EmptyState } from '@/components/ui';
+import { StatCard, Panel, Pill, STATUS_STYLE, PRIORITY_STYLE, EmptyState } from '@/components/ui';
 import { Colors } from '@/constants/Colors';
 import api from '@/utils/api';
 import { describeError } from '@/utils/errors';
+
+const LEAD_ROLES = ['Trek Lead', 'Coordinator'];
+const BRAND = Colors.primary;
+
+const BADGE_TIERS = [
+  { id: 'kumara_parvatha', name: 'Kumara Parvatha', elevation: '1,712m', minBatches: 5,  emoji: '🏔️' },
+  { id: 'kedarkantha',     name: 'Kedarkantha',     elevation: '3,810m', minBatches: 10, emoji: '⛰️' },
+  { id: 'roopkund',        name: 'Roopkund',        elevation: '5,029m', minBatches: 20, emoji: '🗻' },
+  { id: 'trishul',         name: 'Trishul',         elevation: '7,120m', minBatches: 30, emoji: '🌟' },
+  { id: 'nanda_devi',      name: 'Nanda Devi',      elevation: '7,816m', minBatches: 40, emoji: '💎' },
+  { id: 'everester',       name: 'Everester',       elevation: '8,849m', minBatches: 50, emoji: '🏆' },
+];
+
+interface Task { id: string; title: string; category: string; priority: string; status: string; assignees?: string[]; }
+interface MyVoucher { tierId: string; voucherCode: string; }
 
 interface Stats {
   totalUpcomingBatches: number;
@@ -28,6 +43,7 @@ export default function DashboardScreen() {
   const { profile } = useAuth();
   const router = useRouter();
   const isAdmin = ADMIN_ROLES.includes(profile?.role ?? '');
+  const isLeadOrCoordinator = LEAD_ROLES.includes(profile?.role ?? '');
 
   const [stats, setStats] = useState<Stats | null>(null);
   const [myBatches, setMyBatches] = useState<Batch[]>([]);
@@ -35,6 +51,10 @@ export default function DashboardScreen() {
   const [tab, setTab] = useState<'upcoming' | 'completed'>('upcoming');
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [myTasks, setMyTasks] = useState<Task[]>([]);
+  const [myVouchers, setMyVouchers] = useState<MyVoucher[]>([]);
+  const [claimingTier, setClaimingTier] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -57,11 +77,38 @@ export default function DashboardScreen() {
       const r = await api.get('/batches/my');
       setMyBatches(r.data);
     } catch {}
-  }, []);
+
+    if (!isAdmin) {
+      try {
+        const r = await api.get('/tickets', { params: { limit: 500 } });
+        const tickets: Task[] = Array.isArray(r.data) ? r.data : r.data?.tickets ?? [];
+        setMyTasks(tickets.filter(t => t.assignees?.includes(profile?.uid ?? '') && t.status !== 'Done').slice(0, 10));
+      } catch {}
+      try {
+        const r = await api.get('/badges/vouchers');
+        setMyVouchers(r.data ?? []);
+      } catch {}
+    }
+  }, [isAdmin, profile?.uid]);
 
   useEffect(() => { load(); }, [load]);
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
+
+  const claimBadge = async (tierId: string) => {
+    setClaimingTier(tierId);
+    try {
+      const r = await api.post(`/badges/claim/${tierId}`);
+      setMyVouchers(prev => prev.find(v => v.tierId === tierId) ? prev : [...prev, r.data]);
+      Alert.alert(`${r.data.emoji ?? '🏆'} ${r.data.tierName} Unlocked!`, `Voucher code: ${r.data.voucherCode}${r.data.goodieDescription ? `\n\n🎁 ${r.data.goodieDescription}` : '\n\nGoodie details coming soon — stay tuned!'}`);
+    } catch (e: any) {
+      Alert.alert('Error', e.response?.data?.detail ?? 'Could not claim badge. Try again.');
+    } finally { setClaimingTier(null); }
+  };
+
+  const completedCount = myBatches.filter(b => b.status === 'Completed').length;
+  const nextTier = BADGE_TIERS.find(t => completedCount < t.minBatches);
+  const progressPct = nextTier ? Math.min(99, Math.round((completedCount / nextTier.minBatches) * 100)) : 100;
 
   const today = new Date().toISOString().split('T')[0];
   const upcomingList = myBatches
@@ -175,6 +222,90 @@ export default function DashboardScreen() {
         </View>
       </Panel>
 
+      {/* Trek Milestone Badges — leads/coordinators only, as on web */}
+      {isLeadOrCoordinator && (
+        <Panel padding={0} style={{ overflow: 'hidden', marginTop: 14 }}>
+          <View style={s.panelHeader}>
+            <View style={s.panelTitleRow}>
+              <Ionicons name="trophy" size={19} color={Colors.primary} />
+              <Text style={s.panelTitle}>Trek Milestone Badges</Text>
+            </View>
+          </View>
+          <View style={s.panelBody}>
+            {nextTier ? (
+              <View style={{ marginBottom: 4 }}>
+                <View style={s.progressRow}>
+                  <Text style={s.progressLabel}>{completedCount} batches completed</Text>
+                  <Text style={s.progressGoal}>{completedCount} / {nextTier.minBatches} → {nextTier.emoji} {nextTier.name}</Text>
+                </View>
+                <View style={s.progressBarBg}>
+                  <View style={[s.progressBarFg, { width: `${Math.max(progressPct, 4)}%` }]} />
+                </View>
+              </View>
+            ) : (
+              <View style={s.allUnlocked}>
+                <Text style={{ fontSize: 18 }}>🏆</Text>
+                <Text style={s.allUnlockedText}>You've unlocked all badges — true Everester!</Text>
+              </View>
+            )}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 12 }}>
+              {BADGE_TIERS.map(tier => {
+                const unlocked = completedCount >= tier.minBatches;
+                const claimed = myVouchers.find(v => v.tierId === tier.id);
+                const isClaiming = claimingTier === tier.id;
+                return (
+                  <View key={tier.id} style={[s.badgeTile, !unlocked && s.badgeTileLocked]}>
+                    <Text style={s.badgeEmoji}>{tier.emoji}</Text>
+                    <Text style={s.badgeName} numberOfLines={2}>{tier.name}</Text>
+                    <Text style={s.badgeReq}>{tier.minBatches} batches</Text>
+                    {unlocked ? (
+                      claimed ? (
+                        <View style={s.badgeClaimedPill}><Text style={s.badgeClaimedText}>✓ Claimed</Text></View>
+                      ) : (
+                        <TouchableOpacity style={s.badgeClaimBtn} onPress={() => claimBadge(tier.id)} disabled={isClaiming}>
+                          {isClaiming ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={s.badgeClaimText}>🎁 Claim</Text>}
+                        </TouchableOpacity>
+                      )
+                    ) : (
+                      <Text style={s.badgeLocked}>🔒 Locked</Text>
+                    )}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </Panel>
+      )}
+
+      {/* My Tasks — leads/coordinators only, as on web */}
+      {isLeadOrCoordinator && myTasks.length > 0 && (
+        <Panel padding={0} style={{ overflow: 'hidden', marginTop: 14 }}>
+          <View style={s.panelHeader}>
+            <View style={s.panelTitleRow}>
+              <Ionicons name="ticket" size={19} color={Colors.primary} />
+              <Text style={s.panelTitle}>My Tasks ({myTasks.length})</Text>
+              <TouchableOpacity onPress={() => router.push('/(admin)/tasks' as any)}>
+                <Text style={s.viewAll}>View All</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          <View style={s.panelBody}>
+            {myTasks.map(task => {
+              const pr = PRIORITY_STYLE[task.priority] ?? { color: Colors.slate500, bg: Colors.slate100 };
+              return (
+                <View key={task.id} style={s.taskRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.taskTitle} numberOfLines={1}>{task.title}</Text>
+                    <Text style={s.taskCategory}>{task.category}</Text>
+                  </View>
+                  <Pill label={task.priority} color={pr.color} bg={pr.bg} dot />
+                </View>
+              );
+            })}
+          </View>
+        </Panel>
+      )}
+
       {/* Upcoming Batches (Next 7 Days) — admin only, as on web */}
       {isAdmin && (
         <Panel padding={0} style={{ overflow: 'hidden', marginTop: 14 }}>
@@ -238,6 +369,29 @@ const s = StyleSheet.create({
 
   panelBody:  { padding: 14, gap: 10 },
   emptyLine:  { fontSize: 13, color: Colors.slate400, textAlign: 'center', paddingVertical: 20 },
+
+  progressRow:   { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 6, marginBottom: 8 },
+  progressLabel: { fontSize: 13, fontWeight: '600', color: Colors.slate700 },
+  progressGoal:  { fontSize: 13, fontWeight: '800', color: BRAND },
+  progressBarBg: { height: 16, borderRadius: 8, backgroundColor: Colors.slate100, overflow: 'hidden' },
+  progressBarFg: { height: '100%', borderRadius: 8, backgroundColor: BRAND },
+  allUnlocked:     { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.primaryBg, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
+  allUnlockedText: { fontSize: 13, fontWeight: '700', color: BRAND, flexShrink: 1 },
+
+  badgeTile:       { width: 90, alignItems: 'center', gap: 5, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: `${BRAND}40`, backgroundColor: Colors.white, marginRight: 8 },
+  badgeTileLocked: { borderColor: Colors.slate100, backgroundColor: Colors.slate50, opacity: 0.5 },
+  badgeEmoji:      { fontSize: 26 },
+  badgeName:       { fontSize: 10, fontWeight: '800', color: Colors.slate900, textAlign: 'center', lineHeight: 12 },
+  badgeReq:        { fontSize: 9, color: Colors.slate400 },
+  badgeClaimedPill:{ backgroundColor: Colors.success, borderRadius: 20, paddingHorizontal: 6, paddingVertical: 3, width: '100%', alignItems: 'center' },
+  badgeClaimedText:{ fontSize: 9, fontWeight: '800', color: Colors.white },
+  badgeClaimBtn:   { backgroundColor: BRAND, borderRadius: 20, paddingVertical: 5, width: '100%', alignItems: 'center' },
+  badgeClaimText:  { fontSize: 9, fontWeight: '800', color: Colors.white },
+  badgeLocked:     { fontSize: 10, color: Colors.slate400 },
+
+  taskRow:      { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.white, borderRadius: 12, borderWidth: 1, borderColor: Colors.slate100, padding: 12, marginBottom: 8 },
+  taskTitle:    { fontSize: 13, fontWeight: '600', color: Colors.slate900 },
+  taskCategory: { fontSize: 11, color: Colors.slate400, marginTop: 2 },
 
   batchRow:  { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.white, borderRadius: 12, borderWidth: 1, borderColor: Colors.slate100, borderLeftWidth: 3, borderLeftColor: Colors.primary, padding: 13 },
   simpleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.white, borderRadius: 12, borderWidth: 1, borderColor: Colors.slate100, padding: 13 },
